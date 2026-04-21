@@ -53,10 +53,8 @@ class FakeMessages:
 
     def stream(self, **kwargs: Any) -> Any:
         system = kwargs.get("system", "")
-        messages = kwargs.get("messages") or []
-        user = messages[0]["content"] if messages else ""
 
-        if "SIGNAL: BUY|HOLD|PASS" in user:
+        if "tactical trend scorer" in system:
             # Backtest scorer call — respond in the required format.
             chunks = ["SIGNAL: BUY\n", "REASON: positive momentum."]
         else:

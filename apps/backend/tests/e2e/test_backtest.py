@@ -47,11 +47,13 @@ def test_backtest_runs_steps_and_writes_scoreboard(client: TestClient) -> None:
         statuses = [
             e for e in events if e["type"] == "status" and e.get("agent") == "backtester"
         ]
-        # starting + 4 step statuses + done
-        assert len(statuses) == 6
-        assert statuses[0]["status"] == "starting"
-        assert "step 1/4" in statuses[1]["status"]
-        assert statuses[-1]["status"] == "done"
+        status_texts = [s["status"] for s in statuses]
+        assert status_texts[0] == "starting"
+        assert any("step 1/4: fetching" in s for s in status_texts)
+        assert any("step 1/4: scoring" in s for s in status_texts)
+        assert any("step 4/4: scoring" in s for s in status_texts)
+        assert "compiling report" in status_texts
+        assert status_texts[-1] == "done"
 
         tokens = [
             e for e in events if e["type"] == "token" and e.get("agent") == "backtester"

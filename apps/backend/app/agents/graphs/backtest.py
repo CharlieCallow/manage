@@ -33,6 +33,45 @@ _SCORER_MODEL = "claude-haiku-4-5"
 
 _SIGNAL_RE = re.compile(r"SIGNAL\s*:\s*(BUY|HOLD|PASS)", re.IGNORECASE)
 
+# Dedicated scorer system prompt. The persona row's prompt is written for a
+# memo-producing agent with access to fundamentals, so handing it to Haiku
+# during a backtest (which can only see price history) produces universal
+# PASSes. Instead we tell Haiku to emit a tactical price signal, flavored by
+# the persona's sensibility.
+_SCORER_SYSTEM = (
+    "You are a tactical trend scorer inside an equities backtester. You only\n"
+    "have price-based indicators (close, moving averages, returns, drawdown,\n"
+    "volatility) — fundamentals are not available. Score the setup as one of\n"
+    "BUY, HOLD, or PASS.\n\n"
+    "BUY when momentum and trend structure both support taking the position\n"
+    "over the next step. HOLD when the setup is ambiguous but not hostile.\n"
+    "PASS when the trend is breaking or drawdown/volatility warn you off.\n\n"
+    "Lean on the PERSONA_STYLE the user provides — it's a sensibility, not a\n"
+    "licence to demand fundamentals you don't have. Be willing to BUY when\n"
+    "the price signal is clean, even without balance-sheet data.\n\n"
+    "Respond in this exact format and nothing else:\n"
+    "SIGNAL: BUY|HOLD|PASS\n"
+    "REASON: <one short sentence grounded in a number from the snapshot>"
+)
+
+# One-liner style hints per persona — used as flavor in the user message so
+# different personas produce different signal profiles on the same tape.
+_PERSONA_STYLE_HINTS: dict[str, str] = {
+    "buffett": (
+        "Warren Buffett — prefers durable uptrends with room to compound; "
+        "skeptical of frothy breakouts; tolerates sideways tapes."
+    ),
+    "druckenmiller": (
+        "Stanley Druckenmiller — momentum-friendly, bets on clean setups, "
+        "cuts fast when the trend breaks, happy to pass on chop."
+    ),
+    "burry": (
+        "Michael Burry — contrarian, favors deep drawdowns with signs of a "
+        "floor; skeptical of extended rallies; unafraid to PASS when the "
+        "crowd is long."
+    ),
+}
+
 
 @dataclass
 class _StepResult:
@@ -71,16 +110,20 @@ async def run_backtest(
         next_date = as_of + step_delta
 
         yield StatusEvent(
-            agent="backtester", status=f"step {i + 1}/{inputs.num_steps}: {as_of}"
+            agent="backtester",
+            status=f"step {i + 1}/{inputs.num_steps}: fetching {as_of}",
         )
-
         snapshot = await market_data.fetch_snapshot_asof(inputs.ticker, as_of)
         forward = await market_data.fetch_forward_return(
             inputs.ticker, as_of, next_date
         )
+
+        yield StatusEvent(
+            agent="backtester",
+            status=f"step {i + 1}/{inputs.num_steps}: scoring {as_of}",
+        )
         signal, rationale = await _score(
             persona_name=inputs.persona,
-            persona_system=str(persona_row["prompt_template"]),
             ticker=inputs.ticker,
             snapshot=snapshot,
             ctx=ctx,
@@ -97,6 +140,7 @@ async def run_backtest(
         summary = _step_line(step)
         yield TokenEvent(agent="backtester", text=summary + "\n")
 
+    yield StatusEvent(agent="backtester", status="compiling report")
     report = _build_report(inputs, steps)
 
     # Persist the scoreboard row. `period` is the ticker so repeat runs
@@ -142,21 +186,21 @@ async def run_backtest(
 
 async def _score(
     persona_name: str,
-    persona_system: str,
     ticker: str,
     snapshot: dict[str, Any],
     ctx: AgentContext,
 ) -> tuple[str, str]:
-    """Call Haiku with the persona's system prompt and a structured ask."""
+    """Call Haiku with the dedicated scorer system prompt."""
     # Strip the heavy weekly-closes list from the user message — Haiku needs
     # the headline numbers, not 52 bars of price history.
     lite = {k: v for k, v in snapshot.items() if k != "weekly_closes_52w"}
+    style = _PERSONA_STYLE_HINTS.get(persona_name, persona_name)
     user = (
-        f"You are scoring {ticker} for a backtest as of {snapshot.get('as_of')}.\n\n"
-        f"Snapshot:\n{json.dumps(lite, indent=2, default=str)}\n\n"
-        "Respond in this exact format and nothing else:\n"
-        "SIGNAL: BUY|HOLD|PASS\n"
-        "REASON: <one short sentence>"
+        f"Ticker: {ticker}\n"
+        f"As of: {snapshot.get('as_of')}\n"
+        f"PERSONA_STYLE: {style}\n\n"
+        f"Snapshot (price-based indicators only):\n"
+        f"{json.dumps(lite, indent=2, default=str)}"
     )
 
     text_parts: list[str] = []
@@ -166,7 +210,7 @@ async def _score(
     async with ctx.client.messages.stream(
         model=_SCORER_MODEL,
         max_tokens=120,
-        system=persona_system,
+        system=_SCORER_SYSTEM,
         messages=[{"role": "user", "content": user}],
     ) as stream:
         async for chunk in stream.text_stream:
@@ -196,8 +240,6 @@ async def _score(
         if line.lower().startswith("reason:"):
             reason = line.split(":", 1)[1].strip()
             break
-    # Unused but suppress lint on persona_name
-    _ = persona_name
     return signal, reason
 
 

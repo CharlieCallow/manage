@@ -167,14 +167,61 @@ def _yfinance_snapshot_asof(ticker: str, as_of: date) -> dict[str, Any]:
             return None
         return series[-1] / series[0] - 1.0
 
+    def avg(series: list[float]) -> float | None:
+        return sum(series) / len(series) if series else None
+
+    def stdev(series: list[float]) -> float | None:
+        if len(series) < 2:
+            return None
+        m = sum(series) / len(series)
+        var = sum((x - m) ** 2 for x in series) / (len(series) - 1)
+        return float(var**0.5)
+
+    # Price and daily returns for derived metrics.
+    sorted_asc = sorted(closes, key=lambda x: x[0])
+    close_series = [c for _, c in sorted_asc]
+    daily_returns = [
+        close_series[i] / close_series[i - 1] - 1.0
+        for i in range(1, len(close_series))
+        if close_series[i - 1] > 0
+    ]
+
+    last_20 = close_series[-20:] if len(close_series) >= 2 else []
+    last_50 = close_series[-50:] if len(close_series) >= 2 else []
+    last_200 = close_series[-200:] if len(close_series) >= 2 else []
+    recent_returns = daily_returns[-63:]  # ~3 months of trading days
+
+    ma20 = avg(last_20)
+    ma50 = avg(last_50)
+    ma200 = avg(last_200)
+    vol = stdev(recent_returns)
+    annualized_vol = vol * (252**0.5) if vol is not None else None
+
+    high_52w = max(year_back) if year_back else None
+    low_52w = min(year_back) if year_back else None
+
+    def pct_from(base: float | None) -> float | None:
+        if base is None or base == 0:
+            return None
+        return anchor_close / base - 1.0
+
     return {
         "ticker": ticker,
         "as_of": anchor_date.isoformat(),
         "close": anchor_close,
         "return_52w": pct_return(year_back),
         "return_4w": pct_return(month_back),
-        "high_52w": max(year_back) if year_back else None,
-        "low_52w": min(year_back) if year_back else None,
+        "high_52w": high_52w,
+        "low_52w": low_52w,
+        "ma20": ma20,
+        "ma50": ma50,
+        "ma200": ma200,
+        "pct_vs_ma20": pct_from(ma20),
+        "pct_vs_ma50": pct_from(ma50),
+        "pct_vs_ma200": pct_from(ma200),
+        "drawdown_from_52w_high": pct_from(high_52w),
+        "distance_above_52w_low": pct_from(low_52w),
+        "annualized_vol_3m": annualized_vol,
         "weekly_closes_52w": _downsample_weekly(
             [(d, c) for d, c in closes if (anchor_date - d).days <= 365]
         ),
