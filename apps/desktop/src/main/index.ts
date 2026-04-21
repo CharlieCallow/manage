@@ -6,12 +6,16 @@ import type {
   ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
+  DailySpend,
   JobEvent,
   JobSummary,
+  LiveEvent,
   PerformanceRow,
+  PortfolioPosition,
   RosterKind,
   RosterRow,
   RosterUpdate,
+  UpsertPosition,
 } from "../preload/types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,6 +27,8 @@ const HTTP_BASE = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 const WS_BASE = `ws://${BACKEND_HOST}:${BACKEND_PORT}`;
 
 const openSockets = new Map<string, WebSocket>();
+let liveSocket: WebSocket | null = null;
+const LIVE_RECONNECT_MS = 2000;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -49,6 +55,40 @@ function forward(win: BrowserWindow, jobId: string, event: JobEvent): void {
   if (!win.isDestroyed()) {
     win.webContents.send("job:event", { jobId, event });
   }
+}
+
+function broadcastLive(evt: LiveEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("live:event", evt);
+    }
+  }
+}
+
+function connectLive(): void {
+  const ws = new WebSocket(`${WS_BASE}/ws/live`);
+  liveSocket = ws;
+  ws.on("open", () => {
+    // Clear handler — connection will naturally close if backend shuts down.
+  });
+  ws.on("message", (raw) => {
+    try {
+      const payload = JSON.parse(raw.toString()) as {
+        job_id: string;
+        event: JobEvent;
+      };
+      broadcastLive({ jobId: payload.job_id, event: payload.event });
+    } catch {
+      // Swallow malformed broadcast events — they're non-authoritative.
+    }
+  });
+  ws.on("close", () => {
+    liveSocket = null;
+    setTimeout(connectLive, LIVE_RECONNECT_MS);
+  });
+  ws.on("error", () => {
+    ws.close();
+  });
 }
 
 ipcMain.handle(
@@ -160,8 +200,46 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle("portfolio:list", async (): Promise<PortfolioPosition[]> => {
+  const res = await fetch(`${HTTP_BASE}/portfolio`);
+  if (!res.ok) throw new Error(`portfolio list failed: ${res.status}`);
+  return (await res.json()) as PortfolioPosition[];
+});
+
+ipcMain.handle(
+  "portfolio:upsert",
+  async (_evt, body: UpsertPosition): Promise<PortfolioPosition> => {
+    const ticker = body.ticker.trim().toUpperCase();
+    const res = await fetch(
+      `${HTTP_BASE}/portfolio/${encodeURIComponent(ticker)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, ticker }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`portfolio upsert failed: ${res.status} ${text}`);
+    }
+    return (await res.json()) as PortfolioPosition;
+  },
+);
+
+ipcMain.handle("portfolio:delete", async (_evt, id: number): Promise<void> => {
+  const res = await fetch(`${HTTP_BASE}/portfolio/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`portfolio delete failed: ${res.status}`);
+});
+
+ipcMain.handle("spend:today", async (): Promise<DailySpend> => {
+  const res = await fetch(`${HTTP_BASE}/spend/today`);
+  if (!res.ok) throw new Error(`spend_today failed: ${res.status}`);
+  return (await res.json()) as DailySpend;
+});
+
 app.whenReady().then(() => {
   createWindow();
+  connectLive();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -170,5 +248,9 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   for (const ws of openSockets.values()) ws.close();
   openSockets.clear();
+  if (liveSocket) {
+    liveSocket.close();
+    liveSocket = null;
+  }
   if (process.platform !== "darwin") app.quit();
 });

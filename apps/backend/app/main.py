@@ -22,6 +22,7 @@ from app.agents.personas.druckenmiller import (
     default_prompt_template as druckenmiller_prompt,
 )
 from app.api.jobs import router as jobs_router
+from app.api.portfolio import router as portfolio_router
 from app.api.roster import router as roster_router
 from app.logging import configure_logging
 from app.store import db
@@ -59,6 +60,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="manage backend", version="0.0.0", lifespan=lifespan)
 app.include_router(jobs_router)
 app.include_router(roster_router)
+app.include_router(portfolio_router)
 
 
 @app.get("/health")

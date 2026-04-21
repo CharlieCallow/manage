@@ -3,13 +3,17 @@ import type {
   ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
+  DailySpend,
   JobEvent,
   JobSummary,
+  LiveEvent,
   ManageApi,
   PerformanceRow,
+  PortfolioPosition,
   RosterKind,
   RosterRow,
   RosterUpdate,
+  UpsertPosition,
 } from "./types.js";
 
 const api: ManageApi = {
@@ -28,6 +32,14 @@ const api: ManageApi = {
     ipcRenderer.on("job:event", listener);
     return () => ipcRenderer.removeListener("job:event", listener);
   },
+  onLiveEvent: (cb: (evt: LiveEvent) => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      payload: LiveEvent,
+    ): void => cb(payload);
+    ipcRenderer.on("live:event", listener);
+    return () => ipcRenderer.removeListener("live:event", listener);
+  },
   listRoster: (kind: RosterKind): Promise<RosterRow[]> =>
     ipcRenderer.invoke("roster:list", kind),
   updateRosterMember: (
@@ -37,6 +49,13 @@ const api: ManageApi = {
   ): Promise<RosterRow> => ipcRenderer.invoke("roster:update", kind, name, body),
   listPerformance: (personaName: string): Promise<PerformanceRow[]> =>
     ipcRenderer.invoke("roster:performance", personaName),
+  listPortfolio: (): Promise<PortfolioPosition[]> =>
+    ipcRenderer.invoke("portfolio:list"),
+  upsertPosition: (body: UpsertPosition): Promise<PortfolioPosition> =>
+    ipcRenderer.invoke("portfolio:upsert", body),
+  deletePosition: (id: number): Promise<void> =>
+    ipcRenderer.invoke("portfolio:delete", id),
+  spendToday: (): Promise<DailySpend> => ipcRenderer.invoke("spend:today"),
 };
 
 contextBridge.exposeInMainWorld("api", api);

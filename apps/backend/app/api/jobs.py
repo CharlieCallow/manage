@@ -55,6 +55,10 @@ _job_slot = asyncio.Semaphore(_JOB_CONCURRENCY)
 _live_queues: dict[str, list[asyncio.Queue[JobEvent | None]]] = {}
 _queues_lock = asyncio.Lock()
 
+# Broadcast subscribers see every event across every job (Trading Floor).
+_broadcast_queues: list[asyncio.Queue[tuple[str, JobEvent] | None]] = []
+_broadcast_lock = asyncio.Lock()
+
 # Per-job locks around persist+publish so seq numbers are strictly increasing
 # even when multiple agents stream concurrently.
 _event_locks: dict[str, asyncio.Lock] = {}
@@ -73,6 +77,25 @@ async def _publish(job_id: str, event: JobEvent) -> None:
         queues = list(_live_queues.get(job_id, ()))
     for q in queues:
         await q.put(event)
+    async with _broadcast_lock:
+        broadcasts = list(_broadcast_queues)
+    for b in broadcasts:
+        await b.put((job_id, event))
+
+
+async def _subscribe_broadcast() -> asyncio.Queue[tuple[str, JobEvent] | None]:
+    q: asyncio.Queue[tuple[str, JobEvent] | None] = asyncio.Queue()
+    async with _broadcast_lock:
+        _broadcast_queues.append(q)
+    return q
+
+
+async def _unsubscribe_broadcast(
+    q: asyncio.Queue[tuple[str, JobEvent] | None],
+) -> None:
+    async with _broadcast_lock:
+        if q in _broadcast_queues:
+            _broadcast_queues.remove(q)
 
 
 async def _subscribe(job_id: str) -> asyncio.Queue[JobEvent | None]:
@@ -388,3 +411,28 @@ async def _drain(queue: asyncio.Queue[JobEvent | None]) -> AsyncIterator[JobEven
         if item is None:
             return
         yield item
+
+
+@router.websocket("/ws/live")
+async def stream_live(websocket: WebSocket) -> None:
+    """Broadcast of every event on every job. CLAUDE.md §7 — used by the
+    Trading Floor to render ambient agent activity."""
+    await websocket.accept()
+    queue = await _subscribe_broadcast()
+    try:
+        while True:
+            if websocket.application_state != WebSocketState.CONNECTED:
+                break
+            item = await queue.get()
+            if item is None:
+                break
+            job_id, event = item
+            await websocket.send_json(
+                {"job_id": job_id, "event": event.model_dump()}
+            )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await _unsubscribe_broadcast(queue)
+        if websocket.application_state == WebSocketState.CONNECTED:
+            await websocket.close()

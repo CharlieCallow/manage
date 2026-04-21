@@ -14,6 +14,7 @@ from anthropic import AsyncAnthropic
 from app.config import cost_usd
 from app.schemas.events import JobEvent, StatusEvent, TokenEvent
 from app.schemas.jobs import JobRow
+from app.store import db
 
 
 @dataclass
@@ -107,5 +108,13 @@ class LLMAgent(ABC):
             input_tokens = final.usage.input_tokens
             output_tokens = final.usage.output_tokens
 
-        ctx.budget.charge(cost_usd(self.model, input_tokens, output_tokens))
+        call_cost = cost_usd(self.model, input_tokens, output_tokens)
+        ctx.budget.charge(call_cost)
+        db.log_api_call(
+            job_id=ctx.job.id,
+            model=self.model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=call_cost,
+        )
         yield StatusEvent(agent=self.name, status="done")

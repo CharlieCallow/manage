@@ -1,18 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ResearchDesk } from "./rooms/ResearchDesk.js";
 import { CommitteeRoom } from "./rooms/CommitteeRoom.js";
+import { Office } from "./rooms/Office.js";
 import { Roster } from "./rooms/Roster.js";
+import { TradingFloor } from "./rooms/TradingFloor.js";
+import { useLive } from "./liveStore.js";
 
-type Room = "research" | "committee" | "roster";
+type Room = "office" | "research" | "committee" | "floor" | "roster";
 
 const ROOMS: { id: Room; label: string }[] = [
+  { id: "office", label: "Office" },
   { id: "research", label: "Research Desk" },
   { id: "committee", label: "Committee Room" },
+  { id: "floor", label: "Trading Floor" },
   { id: "roster", label: "Roster" },
 ];
 
 export function App(): JSX.Element {
-  const [room, setRoom] = useState<Room>("research");
+  const [room, setRoom] = useState<Room>("office");
+  const ingest = useLive((s) => s.ingest);
+
+  // Ambient events feed the Trading Floor no matter which room is on screen,
+  // so subscribe once at the top-level.
+  useEffect(() => {
+    return window.api.onLiveEvent((evt) => ingest(evt));
+  }, [ingest]);
 
   return (
     <div className="min-h-screen flex flex-col p-6 gap-6 max-w-[120rem] mx-auto">
@@ -36,11 +48,13 @@ export function App(): JSX.Element {
             ))}
           </nav>
         </div>
-        <span className="text-xs text-neutral-500">Phase 3</span>
+        <span className="text-xs text-neutral-500">Phase 4</span>
       </header>
 
+      {room === "office" && <Office />}
       {room === "research" && <ResearchDesk />}
       {room === "committee" && <CommitteeRoom />}
+      {room === "floor" && <TradingFloor />}
       {room === "roster" && <Roster />}
     </div>
   );

@@ -111,12 +111,48 @@ export interface PerformanceRow {
   avg_return: number | null;
 }
 
+export interface PortfolioPosition {
+  id: number;
+  ticker: string;
+  qty: number;
+  avg_price: number;
+  updated_at: string;
+}
+
+export interface UpsertPosition {
+  ticker: string;
+  qty: number;
+  avg_price: number;
+}
+
+export interface ModelSpend {
+  model: string;
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  calls: number;
+}
+
+export interface DailySpend {
+  total_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  by_model: ModelSpend[];
+  daily_cap_usd: number;
+}
+
+export interface LiveEvent {
+  jobId: string;
+  event: JobEvent;
+}
+
 export interface ManageApi {
   createJob(args: CreateJobArgs): Promise<CreateJobResult>;
   cancelJob(jobId: string): Promise<void>;
   listJobs(): Promise<JobSummary[]>;
   listArtifacts(jobId: string): Promise<ArtifactRow[]>;
   onJobEvent(cb: (jobId: string, event: JobEvent) => void): () => void;
+  onLiveEvent(cb: (evt: LiveEvent) => void): () => void;
   listRoster(kind: RosterKind): Promise<RosterRow[]>;
   updateRosterMember(
     kind: RosterKind,
@@ -124,6 +160,10 @@ export interface ManageApi {
     body: RosterUpdate,
   ): Promise<RosterRow>;
   listPerformance(personaName: string): Promise<PerformanceRow[]>;
+  listPortfolio(): Promise<PortfolioPosition[]>;
+  upsertPosition(body: UpsertPosition): Promise<PortfolioPosition>;
+  deletePosition(id: number): Promise<void>;
+  spendToday(): Promise<DailySpend>;
 }
 
 declare global {

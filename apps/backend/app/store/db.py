@@ -145,6 +145,84 @@ def get_analyst_by_name(name: str) -> sqlite3.Row | None:
         return row
 
 
+def log_api_call(
+    job_id: str | None,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cost: float,
+) -> None:
+    """Append a row to api_calls. CLAUDE.md §9 — Office dashboard feeds on this."""
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO api_calls (job_id, model, input_tokens, output_tokens, cost_usd) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (job_id, model, input_tokens, output_tokens, cost),
+        )
+
+
+def daily_spend() -> dict[str, Any]:
+    """Total + per-model spend for the current UTC day."""
+    with connection() as conn:
+        total_cur = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS total, "
+            "COALESCE(SUM(input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(output_tokens), 0) AS output_tokens "
+            "FROM api_calls WHERE date(ts) = date('now')"
+        )
+        total_row = dict(total_cur.fetchone())
+
+        per_model_cur = conn.execute(
+            "SELECT model, COALESCE(SUM(cost_usd), 0) AS cost, "
+            "COALESCE(SUM(input_tokens), 0) AS input_tokens, "
+            "COALESCE(SUM(output_tokens), 0) AS output_tokens, "
+            "COUNT(*) AS calls "
+            "FROM api_calls WHERE date(ts) = date('now') "
+            "GROUP BY model ORDER BY cost DESC"
+        )
+        by_model = [dict(r) for r in per_model_cur.fetchall()]
+    return {
+        "total_usd": float(total_row["total"]),
+        "input_tokens": int(total_row["input_tokens"]),
+        "output_tokens": int(total_row["output_tokens"]),
+        "by_model": by_model,
+    }
+
+
+def list_portfolio() -> list[dict[str, Any]]:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, ticker, qty, avg_price, updated_at "
+            "FROM portfolio ORDER BY ticker"
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_portfolio_position(ticker: str, qty: float, avg_price: float) -> int:
+    """Insert or update a position. Returns row id."""
+    with connection() as conn:
+        cur = conn.execute("SELECT id FROM portfolio WHERE ticker = ?", (ticker,))
+        row = cur.fetchone()
+        if row is None:
+            cur = conn.execute(
+                "INSERT INTO portfolio (ticker, qty, avg_price) VALUES (?, ?, ?)",
+                (ticker, qty, avg_price),
+            )
+            return int(cur.lastrowid or 0)
+        conn.execute(
+            "UPDATE portfolio SET qty = ?, avg_price = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (qty, avg_price, row["id"]),
+        )
+        return int(row["id"])
+
+
+def delete_portfolio_position(position_id: int) -> bool:
+    with connection() as conn:
+        cur = conn.execute("DELETE FROM portfolio WHERE id = ?", (position_id,))
+        return cur.rowcount > 0
+
+
 def insert_artifact(
     job_id: str,
     kind: str,

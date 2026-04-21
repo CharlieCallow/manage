@@ -12,11 +12,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 ## 2. Current phase
 
-**Phase 3 — Committee Room.** Update this line on every phase boundary.
+**Phase 4 — Office + Trading Floor.** Update this line on every phase boundary.
 
-Phase 3 is done when: a committee job takes a ticker, runs moderator → buffett → druckenmiller → burry → risk → pm in order with each speaker streaming tokens under its own agent name, and produces a transcript artifact that carries the PM's final verdict.
+Phase 4 is done when: the Office room shows a live daily-spend widget (fed by the `api_calls` table) and a portfolio table with add/update/delete, and the Trading Floor renders a desk grid that lights up in real time as any agent streams tokens on any job (driven by a new `/ws/live` broadcast channel).
 
-Do not start Phase 4 work until Phase 3 runs end-to-end on a clean machine.
+Do not start Phase 5 work until Phase 4 runs end-to-end on a clean machine.
 
 ## 3. Repo layout
 
@@ -49,7 +49,7 @@ Never commit `data/fund.sqlite`, `.env`, or anything under `apps/backend/logs/`.
 - **Desktop:** Electron + React 18 + TypeScript + Vite. Tailwind for styling. Zustand for renderer state. electron-builder for packaging.
 - **Backend:** Python 3.11+, FastAPI, Uvicorn, LangGraph, Anthropic Python SDK (`anthropic`), Pydantic v2.
 - **Storage:** SQLite via `sqlite3` / SQLAlchemy Core. No ORM layer beyond that. Migrations in `apps/backend/migrations/` run at startup.
-- **Transport:** REST for CRUD, WebSocket (`/ws/jobs/{job_id}`) for streaming agent output.
+- **Transport:** REST for CRUD, WebSocket (`/ws/jobs/{job_id}`) for streaming one job's output, and WebSocket (`/ws/live`) for a broadcast of every event across every job (used by the Trading Floor).
 - **Market data:** financial-datasets.ai (API key in `.env`) with a yfinance fallback for free tickers. Abstract behind `app/tools/market_data.py` — never call either directly from an agent.
 
 ## 5. Data model

@@ -6,7 +6,7 @@ Analytical / educational tool only. Executes no trades. See `CLAUDE.md` §14.
 
 ## Status
 
-**Phase 3 — Committee Room.** Research Desk (persona + analyst stack → memo), Roster CRUD, and now a Committee Room (moderator → personas → risk → PM with a transcript + verdict). See `CLAUDE.md` §12 for the phased plan.
+**Phase 4 — Office + Trading Floor.** Office dashboard (portfolio, spend, jobs), Trading Floor ambient agent view, plus the prior rooms (Research Desk, Committee Room, Roster). See `CLAUDE.md` §12 for the phased plan.
 
 ## Quickstart
 
