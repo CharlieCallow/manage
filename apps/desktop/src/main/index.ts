@@ -3,9 +3,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
 import type {
+  ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
   JobEvent,
+  JobSummary,
 } from "../preload/types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,8 +22,8 @@ const openSockets = new Map<string, WebSocket>();
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1280,
+    height: 860,
     backgroundColor: "#0a0a0a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.mjs"),
@@ -97,6 +99,21 @@ ipcMain.handle("jobs:cancel", (_evt, jobId: string): void => {
     openSockets.delete(jobId);
   }
 });
+
+ipcMain.handle("jobs:list", async (): Promise<JobSummary[]> => {
+  const res = await fetch(`${HTTP_BASE}/jobs`);
+  if (!res.ok) throw new Error(`list_jobs failed: ${res.status}`);
+  return (await res.json()) as JobSummary[];
+});
+
+ipcMain.handle(
+  "jobs:listArtifacts",
+  async (_evt, jobId: string): Promise<ArtifactRow[]> => {
+    const res = await fetch(`${HTTP_BASE}/jobs/${jobId}/artifacts`);
+    if (!res.ok) throw new Error(`list_artifacts failed: ${res.status}`);
+    return (await res.json()) as ArtifactRow[];
+  },
+);
 
 app.whenReady().then(() => {
   createWindow();

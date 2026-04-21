@@ -6,7 +6,7 @@ Analytical / educational tool only. Executes no trades. See `CLAUDE.md` §14.
 
 ## Status
 
-**Phase 0 — Foundation.** Streaming debug panel over a hard-coded Buffett persona. See `CLAUDE.md` §12 for the phased plan.
+**Phase 1 — Research Desk (slice).** Ticker + one of three personas (Buffett, Druckenmiller, Burry) → two analysts in parallel → memo artifact. See `CLAUDE.md` §12 for the phased plan.
 
 ## Quickstart
 

@@ -1,13 +1,21 @@
 // Wire types shared between main, preload, and renderer.
-// Mirrors apps/backend/app/schemas/events.py. CLAUDE.md §11 notes these are
-// regenerated from Pydantic in Phase 1+; for now they're maintained by hand.
+// Mirrors apps/backend/app/schemas/*.py. CLAUDE.md §11 notes these are
+// regenerated from Pydantic in a later phase; for now maintained by hand.
 
-export type PersonaName = "buffett";
+export type PersonaName = "buffett" | "druckenmiller" | "burry";
+export type AnalystName = "valuation" | "fundamentals";
 export type JobType = "research" | "committee" | "backtest";
+export type JobStatus =
+  | "queued"
+  | "running"
+  | "done"
+  | "error"
+  | "budget_exceeded";
 
 export interface ResearchInputs {
   persona: PersonaName;
-  prompt: string;
+  ticker: string;
+  prompt?: string;
 }
 
 export interface CreateJobArgs {
@@ -18,6 +26,14 @@ export interface CreateJobArgs {
 
 export interface CreateJobResult {
   jobId: string;
+}
+
+export interface ArtifactPayload {
+  id: number | null;
+  job_id: string;
+  kind: string;
+  content_md: string | null;
+  content_json: Record<string, unknown> | null;
 }
 
 export type JobEvent =
@@ -35,22 +51,37 @@ export type JobEvent =
       output: Record<string, unknown>;
     }
   | { type: "status"; agent: string; status: string }
-  | {
-      type: "artifact";
-      artifact: {
-        id: number | null;
-        job_id: string;
-        kind: string;
-        content_md: string | null;
-        content_json: Record<string, unknown> | null;
-      };
-    }
+  | { type: "artifact"; artifact: ArtifactPayload }
   | { type: "job_done"; cost_usd: number }
   | { type: "error"; message: string };
+
+export interface JobSummary {
+  id: string;
+  type: JobType;
+  status: JobStatus;
+  cost_usd: number;
+  budget_usd: number;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  ticker: string | null;
+  persona: string | null;
+}
+
+export interface ArtifactRow {
+  id: number;
+  job_id: string;
+  kind: string;
+  content_md: string | null;
+  content_json: string | null;
+  created_at: string;
+}
 
 export interface ManageApi {
   createJob(args: CreateJobArgs): Promise<CreateJobResult>;
   cancelJob(jobId: string): Promise<void>;
+  listJobs(): Promise<JobSummary[]>;
+  listArtifacts(jobId: string): Promise<ArtifactRow[]>;
   onJobEvent(cb: (jobId: string, event: JobEvent) => void): () => void;
 }
 

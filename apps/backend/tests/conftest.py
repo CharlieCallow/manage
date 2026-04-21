@@ -1,4 +1,4 @@
-"""Test fixtures. CLAUDE.md §14 — no network calls; mock the Anthropic client."""
+"""Test fixtures. CLAUDE.md §14 — no network; mock Anthropic and market data."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 
-# Force an isolated DB per test process, before any app import.
 os.environ.setdefault("DATABASE_PATH", "data/test-fund.sqlite")
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
 
@@ -42,11 +41,19 @@ class FakeStream:
 
 
 class FakeMessages:
-    def __init__(self, chunks: list[str]) -> None:
-        self._chunks = chunks
+    """Returns a stream whose chunks depend on which agent is calling.
 
-    def stream(self, **_kwargs: Any) -> Any:
-        chunks = self._chunks
+    We key on the system prompt: every persona/analyst prompt file starts
+    with a distinctive first word, which lets tests assert per-agent output.
+    """
+
+    def __init__(self, chunks_for: dict[str, list[str]]) -> None:
+        self._by_key = chunks_for
+
+    def stream(self, **kwargs: Any) -> Any:
+        system = kwargs.get("system", "")
+        key = _match_key(system, self._by_key) or "default"
+        chunks = self._by_key.get(key, ["ok"])
 
         @asynccontextmanager
         async def cm() -> AsyncIterator[FakeStream]:
@@ -55,32 +62,59 @@ class FakeMessages:
         return cm()
 
 
+def _match_key(system: str, mapping: dict[str, list[str]]) -> str | None:
+    for key in mapping:
+        if key in system:
+            return key
+    return None
+
+
 class FakeAnthropic:
-    def __init__(self, chunks: list[str] | None = None, **_: Any) -> None:
-        self.messages = FakeMessages(chunks or ["Hello ", "from ", "Buffett."])
+    def __init__(self, chunks_for: dict[str, list[str]] | None = None, **_: Any) -> None:
+        defaults = {
+            "Buffett": ["# Memo\n", "Buy KO. "],
+            "Druckenmiller": ["# Memo\n", "Macro call. "],
+            "Burry": ["# Memo\n", "Read footnotes. "],
+            "valuation analyst": ["Valuation: expensive. "],
+            "fundamentals analyst": ["Fundamentals: high quality. "],
+        }
+        self.messages = FakeMessages(chunks_for=chunks_for or defaults)
 
 
 @pytest.fixture
-def fake_anthropic_chunks() -> list[str]:
-    return ["Hello ", "from ", "Buffett."]
+def fake_anthropic() -> FakeAnthropic:
+    return FakeAnthropic()
 
 
 @pytest.fixture
 def patched_client(
-    monkeypatch: pytest.MonkeyPatch, fake_anthropic_chunks: list[str]
+    monkeypatch: pytest.MonkeyPatch, fake_anthropic: FakeAnthropic
 ) -> Iterator[None]:
     from app.api import jobs as jobs_module
 
-    def factory() -> FakeAnthropic:
-        return FakeAnthropic(chunks=fake_anthropic_chunks)
+    monkeypatch.setattr(jobs_module, "_make_anthropic_client", lambda: fake_anthropic)
+    yield
 
-    monkeypatch.setattr(jobs_module, "_make_anthropic_client", factory)
+
+@pytest.fixture
+def patched_market_data(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    async def fake_fetch(ticker: str) -> dict[str, Any]:
+        return {
+            "ticker": ticker,
+            "name": f"{ticker} Corp",
+            "price": 100.0,
+            "pe_trailing": 20.0,
+            "market_cap": 1_000_000_000,
+        }
+
+    from app.tools import market_data
+
+    monkeypatch.setattr(market_data, "fetch_snapshot", fake_fetch)
     yield
 
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    # Redirect the DB to a per-test temp file.
     db_file = tmp_path / "fund.sqlite"
     monkeypatch.setenv("DATABASE_PATH", str(db_file))
 
@@ -88,7 +122,6 @@ def fresh_db(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     monkeypatch.setattr(cfg_settings, "database_path", str(db_file))
 
-    # Reset the cached engine so a new one picks up the new path.
     from app.store import db as db_module
 
     monkeypatch.setattr(db_module, "_engine", None)

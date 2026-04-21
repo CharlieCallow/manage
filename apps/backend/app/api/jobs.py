@@ -1,14 +1,19 @@
 """Job REST + WebSocket routes. CLAUDE.md §6, §7, §9.
 
-- POST /jobs            create + enqueue a job
-- WS  /ws/jobs/{job_id} stream events (with replay on reconnect)
+- POST /jobs                    create + enqueue a job
+- GET  /jobs                    list recent jobs (lightweight)
+- GET  /jobs/{id}/artifacts     artifacts produced by a job
+- WS   /ws/jobs/{job_id}        stream events (replay on reconnect)
 
 Runner persists every event to job_events so reconnects can replay (§7).
 Enforces per-job budget (§9). Never retries on failure (§9, §14).
+A bounded asyncio.Semaphore caps concurrent running jobs; additional jobs
+sit in status='queued' until a slot frees up.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -23,19 +28,42 @@ from app.agents.base import AgentContext, BudgetTracker
 from app.agents.graphs.research import run_research
 from app.config import settings
 from app.schemas.events import ErrorEvent, JobDoneEvent, JobEvent, StatusEvent
-from app.schemas.jobs import CreateJobRequest, CreateJobResponse, JobRow
+from app.schemas.jobs import (
+    ArtifactRow,
+    CreateJobRequest,
+    CreateJobResponse,
+    JobRow,
+    JobSummary,
+    ResearchInputs,
+)
+from app.store import db
 from app.store.db import connection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Phase 1: fixed concurrency. Roster UI (Phase 2) can surface this later.
+_JOB_CONCURRENCY = 2
+_job_slot = asyncio.Semaphore(_JOB_CONCURRENCY)
+
 
 # ---- in-process event bus --------------------------------------------------
 
-# One queue per active job. Dropped after the job completes.
 _live_queues: dict[str, list[asyncio.Queue[JobEvent | None]]] = {}
 _queues_lock = asyncio.Lock()
+
+# Per-job locks around persist+publish so seq numbers are strictly increasing
+# even when multiple agents stream concurrently.
+_event_locks: dict[str, asyncio.Lock] = {}
+
+
+def _event_lock(job_id: str) -> asyncio.Lock:
+    lock = _event_locks.get(job_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _event_locks[job_id] = lock
+    return lock
 
 
 async def _publish(job_id: str, event: JobEvent) -> None:
@@ -62,11 +90,11 @@ async def _unsubscribe(job_id: str, q: asyncio.Queue[JobEvent | None]) -> None:
 
 
 async def _finalize(job_id: str) -> None:
-    """Tell every live subscriber the stream is done."""
     async with _queues_lock:
         queues = list(_live_queues.get(job_id, ()))
     for q in queues:
         await q.put(None)
+    _event_locks.pop(job_id, None)
 
 
 # ---- persistence -----------------------------------------------------------
@@ -150,60 +178,63 @@ def _make_anthropic_client() -> AsyncAnthropic:
 
 
 async def _emit(job_id: str, event: JobEvent) -> None:
-    _persist_event(job_id, event)
-    await _publish(job_id, event)
+    async with _event_lock(job_id):
+        _persist_event(job_id, event)
+        await _publish(job_id, event)
 
 
 async def _run_job(job_id: str, req: CreateJobRequest) -> None:
-    _update_job(job_id, status="running", started_at=_now())
-
-    job = _load_job(job_id)
-    if job is None:  # pragma: no cover — defensive
-        return
-
-    ctx = AgentContext(
-        job=job,
-        client=_make_anthropic_client(),
-        budget=BudgetTracker(budget_usd=job.budget_usd),
-    )
-
+    ctx: AgentContext | None = None
     try:
-        if req.type == "research":
-            stream = run_research(job, req.inputs, ctx)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"job type not implemented in Phase 0: {req.type}",
-            )
+        async with _job_slot:
+            _update_job(job_id, status="running", started_at=_now())
 
-        async for event in stream:
-            await _emit(job_id, event)
-            if isinstance(event, StatusEvent) and event.status == "budget_exceeded":
-                _update_job(
-                    job_id,
-                    status="budget_exceeded",
-                    cost_usd=ctx.budget.spent_usd,
-                    finished_at=_now(),
-                )
-                await _emit(
-                    job_id, JobDoneEvent(cost_usd=ctx.budget.spent_usd)
-                )
+            job = _load_job(job_id)
+            if job is None:  # pragma: no cover — defensive
                 return
 
-        _update_job(
-            job_id,
-            status="done",
-            cost_usd=ctx.budget.spent_usd,
-            finished_at=_now(),
-        )
-        await _emit(job_id, JobDoneEvent(cost_usd=ctx.budget.spent_usd))
+            ctx = AgentContext(
+                job=job,
+                client=_make_anthropic_client(),
+                budget=BudgetTracker(budget_usd=job.budget_usd),
+            )
+
+            if req.type == "research":
+                assert isinstance(req.inputs, ResearchInputs)
+                stream = run_research(job, req.inputs, ctx)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"job type not implemented in Phase 1: {req.type}",
+                )
+
+            async for event in stream:
+                await _emit(job_id, event)
+                if isinstance(event, StatusEvent) and event.status == "budget_exceeded":
+                    _update_job(
+                        job_id,
+                        status="budget_exceeded",
+                        cost_usd=ctx.budget.spent_usd,
+                        finished_at=_now(),
+                    )
+                    await _emit(job_id, JobDoneEvent(cost_usd=ctx.budget.spent_usd))
+                    return
+
+            _update_job(
+                job_id,
+                status="done",
+                cost_usd=ctx.budget.spent_usd,
+                finished_at=_now(),
+            )
+            await _emit(job_id, JobDoneEvent(cost_usd=ctx.budget.spent_usd))
 
     except Exception as exc:  # surface to user (§11)
         logger.exception("job %s failed", job_id)
+        spent = ctx.budget.spent_usd if ctx else 0.0
         _update_job(
             job_id,
             status="error",
-            cost_usd=ctx.budget.spent_usd,
+            cost_usd=spent,
             finished_at=_now(),
             error=str(exc),
         )
@@ -223,14 +254,12 @@ def _now() -> str:
 
 @router.post("/jobs", response_model=CreateJobResponse)
 async def create_job(req: CreateJobRequest) -> CreateJobResponse:
-    # Explicit None-check: 0.0 is a legitimate budget (zero-budget test/gate).
     budget = (
         req.budget_usd
         if req.budget_usd is not None
         else settings.default_job_budget_usd
     )
 
-    # Daily cap check (§9).
     with connection() as conn:
         cur = conn.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM jobs "
@@ -264,6 +293,37 @@ async def create_job(req: CreateJobRequest) -> CreateJobResponse:
     return CreateJobResponse(job_id=job_id)
 
 
+@router.get("/jobs", response_model=list[JobSummary])
+async def list_jobs(limit: int = 50) -> list[JobSummary]:
+    rows = db.list_recent_jobs(limit=limit)
+    summaries: list[JobSummary] = []
+    for row in rows:
+        inputs: dict[str, Any] = {}
+        with contextlib.suppress(json.JSONDecodeError):
+            inputs = json.loads(row.get("inputs_json") or "{}")
+        summaries.append(
+            JobSummary(
+                id=row["id"],
+                type=row["type"],
+                status=row["status"],
+                cost_usd=row["cost_usd"],
+                budget_usd=row["budget_usd"],
+                started_at=row["started_at"],
+                finished_at=row["finished_at"],
+                error=row["error"],
+                ticker=inputs.get("ticker"),
+                persona=inputs.get("persona"),
+            )
+        )
+    return summaries
+
+
+@router.get("/jobs/{job_id}/artifacts", response_model=list[ArtifactRow])
+async def list_job_artifacts(job_id: str) -> list[ArtifactRow]:
+    rows = db.list_artifacts_for_job(job_id)
+    return [ArtifactRow(**row) for row in rows]
+
+
 @router.websocket("/ws/jobs/{job_id}")
 async def stream_job(websocket: WebSocket, job_id: str) -> None:
     await websocket.accept()
@@ -276,12 +336,10 @@ async def stream_job(websocket: WebSocket, job_id: str) -> None:
         await websocket.close()
         return
 
-    # Replay persisted events so reconnects resume cleanly (§7).
     replay = _load_events(job_id)
     for event in replay:
         await websocket.send_json(event.model_dump())
 
-    # If the job is already terminal, we're done.
     if job.status in {"done", "error", "budget_exceeded"}:
         await websocket.close()
         return

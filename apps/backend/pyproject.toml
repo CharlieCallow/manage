@@ -16,6 +16,7 @@ langgraph = "^0.2.0"
 sqlalchemy = "^2.0.0"
 python-dotenv = "^1.0.0"
 websockets = "^13.0"
+yfinance = "^0.2.50"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
@@ -49,5 +50,5 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["langgraph.*"]
+module = ["langgraph.*", "yfinance.*"]
 ignore_missing_imports = true

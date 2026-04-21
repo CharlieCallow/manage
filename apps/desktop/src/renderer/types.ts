@@ -1,8 +1,12 @@
-// Re-export wire types from preload so renderer code uses one source.
 export type {
+  AnalystName,
+  ArtifactPayload,
+  ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
   JobEvent,
+  JobStatus,
+  JobSummary,
   JobType,
   ManageApi,
   PersonaName,

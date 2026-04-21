@@ -11,6 +11,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine, create_engine, event, text
 
@@ -99,23 +100,35 @@ def connection() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def upsert_persona(name: str, prompt_template: str, model: str) -> int:
-    """Upsert and return persona id."""
+def _upsert(
+    table: str, name: str, prompt_template: str, model: str
+) -> int:
+    # Only called with hard-coded table names; not user input.
+    if table not in {"personas", "analysts"}:
+        raise ValueError(f"invalid table for upsert: {table}")
     with connection() as conn:
-        cur = conn.execute("SELECT id FROM personas WHERE name = ?", (name,))
+        cur = conn.execute(f"SELECT id FROM {table} WHERE name = ?", (name,))  # noqa: S608
         row = cur.fetchone()
         if row is None:
             cur = conn.execute(
-                "INSERT INTO personas (name, prompt_template, model, config_json) "
+                f"INSERT INTO {table} (name, prompt_template, model, config_json) "  # noqa: S608
                 "VALUES (?, ?, ?, ?)",
                 (name, prompt_template, model, json.dumps({})),
             )
             return int(cur.lastrowid or 0)
         conn.execute(
-            "UPDATE personas SET prompt_template = ? WHERE id = ?",
+            f"UPDATE {table} SET prompt_template = ? WHERE id = ?",  # noqa: S608
             (prompt_template, row["id"]),
         )
         return int(row["id"])
+
+
+def upsert_persona(name: str, prompt_template: str, model: str) -> int:
+    return _upsert("personas", name, prompt_template, model)
+
+
+def upsert_analyst(name: str, prompt_template: str, model: str) -> int:
+    return _upsert("analysts", name, prompt_template, model)
 
 
 def get_persona_by_name(name: str) -> sqlite3.Row | None:
@@ -123,3 +136,46 @@ def get_persona_by_name(name: str) -> sqlite3.Row | None:
         cur = conn.execute("SELECT * FROM personas WHERE name = ?", (name,))
         row: sqlite3.Row | None = cur.fetchone()
         return row
+
+
+def get_analyst_by_name(name: str) -> sqlite3.Row | None:
+    with connection() as conn:
+        cur = conn.execute("SELECT * FROM analysts WHERE name = ?", (name,))
+        row: sqlite3.Row | None = cur.fetchone()
+        return row
+
+
+def insert_artifact(
+    job_id: str,
+    kind: str,
+    content_md: str | None = None,
+    content_json: str | None = None,
+) -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO artifacts (job_id, kind, content_md, content_json) "
+            "VALUES (?, ?, ?, ?)",
+            (job_id, kind, content_md, content_json),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_artifacts_for_job(job_id: str) -> list[dict[str, Any]]:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, job_id, kind, content_md, content_json, created_at "
+            "FROM artifacts WHERE job_id = ? ORDER BY id",
+            (job_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_recent_jobs(limit: int = 50) -> list[dict[str, Any]]:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, type, status, cost_usd, budget_usd, started_at, "
+            "finished_at, error, inputs_json FROM jobs "
+            "ORDER BY COALESCE(started_at, id) DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]

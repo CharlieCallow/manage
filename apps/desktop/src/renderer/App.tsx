@@ -1,65 +1,92 @@
-import { useEffect, useState } from "react";
-import { useDebugPanel } from "./store.js";
+import { useEffect } from "react";
+import { useResearch } from "./store.js";
+import { ResearchForm } from "./components/ResearchForm.js";
+import { AgentStream } from "./components/AgentStream.js";
+import { MemoView } from "./components/MemoView.js";
+import { JobList } from "./components/JobList.js";
+
+const ANALYSTS: { agent: string; label: string }[] = [
+  { agent: "valuation", label: "Valuation analyst" },
+  { agent: "fundamentals", label: "Fundamentals analyst" },
+];
 
 export function App(): JSX.Element {
-  const [prompt, setPrompt] = useState("What do you think about KO today?");
-  const { jobId, tokens, status, error, costUsd, running, start, reset, apply } =
-    useDebugPanel();
+  const active = useResearch((s) => s.active);
+  const jobs = useResearch((s) => s.jobs);
+  const apply = useResearch((s) => s.apply);
+  const loadJobs = useResearch((s) => s.loadJobs);
 
   useEffect(() => {
-    return window.api.onJobEvent((_jobId, event) => apply(event));
-  }, [apply]);
+    void loadJobs();
+    return window.api.onJobEvent((jobId, event) => apply(jobId, event));
+  }, [apply, loadJobs]);
+
+  const graphStatus = active?.statusByAgent["graph"];
+  const personaAgent = active?.persona ?? "buffett";
+  const personaLabel =
+    personaAgent.charAt(0).toUpperCase() + personaAgent.slice(1);
 
   return (
-    <div className="min-h-screen p-6 flex flex-col gap-4 max-w-3xl mx-auto">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold">manage · debug panel</h1>
-        <span className="text-xs text-neutral-500">Phase 0 · Buffett</span>
-      </header>
+    <div className="min-h-screen grid grid-cols-[1fr_20rem] gap-6 p-6 max-w-[120rem] mx-auto">
+      <main className="flex flex-col gap-6 min-w-0">
+        <header className="flex items-baseline justify-between">
+          <h1 className="text-xl font-semibold">manage · Research Desk</h1>
+          <span className="text-xs text-neutral-500">Phase 1</span>
+        </header>
 
-      <section className="flex flex-col gap-2">
-        <label htmlFor="prompt" className="text-sm text-neutral-400">
-          Ask Buffett
-        </label>
-        <textarea
-          id="prompt"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={3}
-          className="bg-neutral-900 border border-neutral-800 rounded p-3 font-mono text-sm focus:outline-none focus:border-neutral-600"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={() => void start(prompt)}
-            disabled={running || prompt.trim().length === 0}
-            className="px-3 py-1.5 rounded bg-amber-500 text-neutral-950 text-sm font-medium disabled:opacity-40"
-          >
-            {running ? "Running…" : "Run"}
-          </button>
-          <button
-            onClick={reset}
-            disabled={running}
-            className="px-3 py-1.5 rounded bg-neutral-800 text-neutral-200 text-sm disabled:opacity-40"
-          >
-            Reset
-          </button>
-        </div>
-      </section>
+        <section className="border border-neutral-800 rounded p-4 bg-neutral-950/60">
+          <ResearchForm />
+        </section>
 
-      <section className="flex flex-col gap-1 text-xs text-neutral-500">
-        <div>job: {jobId ?? "—"}</div>
-        <div>status: {status || "idle"}</div>
-        {costUsd !== null && <div>cost: ${costUsd.toFixed(4)}</div>}
-        {error && <div className="text-rose-400">error: {error}</div>}
-      </section>
+        {active && (
+          <section className="flex flex-col gap-3">
+            <div className="flex justify-between items-baseline text-xs text-neutral-500">
+              <span className="font-mono">
+                {active.ticker} · {active.persona} · job {active.id.slice(0, 8)}
+              </span>
+              <span>
+                {active.costUsd !== null && <>cost ${active.costUsd.toFixed(4)}</>}{" "}
+                {graphStatus && <span className="ml-3">graph: {graphStatus}</span>}
+              </span>
+            </div>
+            {active.error && (
+              <div className="text-rose-400 text-sm border border-rose-900 rounded px-3 py-2">
+                {active.error}
+              </div>
+            )}
 
-      <section className="flex-1 bg-neutral-900 border border-neutral-800 rounded p-4 whitespace-pre-wrap font-mono text-sm min-h-[12rem]">
-        {tokens || (
-          <span className="text-neutral-600">
-            Stream from a hard-coded Buffett persona will render here.
-          </span>
+            <div className="grid grid-cols-2 gap-3">
+              {ANALYSTS.map((a) => (
+                <AgentStream
+                  key={a.agent}
+                  agent={a.agent}
+                  label={a.label}
+                  status={active.statusByAgent[a.agent]}
+                  tokens={active.tokensByAgent[a.agent] ?? ""}
+                />
+              ))}
+            </div>
+
+            <AgentStream
+              agent={personaAgent}
+              label={`${personaLabel} (synthesis)`}
+              status={active.statusByAgent[personaAgent]}
+              tokens={active.tokensByAgent[personaAgent] ?? ""}
+            />
+
+            {active.artifacts.map((a) => (
+              <MemoView key={a.id ?? `${a.kind}-new`} artifact={a} />
+            ))}
+          </section>
         )}
-      </section>
+      </main>
+
+      <aside className="flex flex-col gap-3 min-w-0">
+        <h2 className="text-xs text-neutral-400 uppercase tracking-wide">
+          Recent jobs
+        </h2>
+        <JobList jobs={jobs} activeId={active?.id ?? null} />
+      </aside>
     </div>
   );
 }

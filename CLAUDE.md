@@ -12,11 +12,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 ## 2. Current phase
 
-**Phase 0 — Foundation.** Update this line on every phase boundary.
+**Phase 1 — Research Desk (slice).** Update this line on every phase boundary.
 
-Phase 0 is done when: Electron app launches, FastAPI backend runs, SQLite schema is migrated, and a debug panel streams tokens from a hard-coded Buffett persona via the Anthropic SDK.
+Phase 1 is done when: the Research Desk can take a ticker + one of three personas (Buffett, Druckenmiller, Burry), fan out to two analysts (valuation, fundamentals) in parallel, and produce a readable NVDA memo artifact — all driven through the job queue, with per-agent streaming visible in the UI.
 
-Do not start Phase 1 work until Phase 0 runs end-to-end on a clean machine.
+Do not start Phase 2 work until Phase 1 runs end-to-end on a clean machine.
 
 ## 3. Repo layout
 

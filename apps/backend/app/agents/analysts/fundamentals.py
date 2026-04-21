@@ -1,10 +1,10 @@
-"""Buffett persona. CLAUDE.md §6, §8, §13."""
+"""Fundamentals analyst. CLAUDE.md §5, §13."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from app.agents.base import AgentContext, LLMAgent
-from app.agents.prompt import persona_user_message
+from app.agents.prompt import analyst_user_message
 
 PROMPT_PATH = Path(__file__).with_suffix(".md")
 
@@ -13,14 +13,15 @@ def default_prompt_template() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-class BuffettAgent(LLMAgent):
+class FundamentalsAnalyst(LLMAgent):
     def __init__(self, model: str, prompt_template: str) -> None:
-        super().__init__(name="buffett", model=model, prompt_template=prompt_template)
+        super().__init__(
+            name="fundamentals", model=model, prompt_template=prompt_template
+        )
 
     def build_user_message(self, ctx: AgentContext) -> str:
-        return persona_user_message(
+        return analyst_user_message(
+            kind="fundamentals",
             ticker=ctx.ticker or "(unspecified)",
             snapshot=ctx.snapshot,
-            analyst_outputs=ctx.analyst_outputs,
-            user_prompt=ctx.user_prompt,
         )
