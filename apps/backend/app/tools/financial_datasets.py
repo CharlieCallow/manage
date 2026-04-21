@@ -186,6 +186,56 @@ async def fetch_fundamentals_live(ticker: str) -> dict[str, Any] | None:
     return await fetch_fundamentals_asof(ticker, date.today() + timedelta(days=1))
 
 
+async def fetch_fundamentals_series(
+    ticker: str, as_of: date, periods: int = 8
+) -> list[dict[str, Any]] | None:
+    """Pull the last `periods` quarterly metrics rows on/before as_of.
+
+    Each row is shaped { report_period, revenue, gross_margin,
+    operating_margin, net_margin, revenue_growth, free_cash_flow_growth }.
+    Ordered oldest → newest so callers can plot left-to-right.
+    """
+    if not is_enabled():
+        return None
+    data = await _get(
+        "/financial-metrics",
+        {
+            "ticker": ticker,
+            "period": "quarterly",
+            "limit": max(1, min(periods, 40)),
+            "report_period_lte": as_of.isoformat(),
+        },
+    )
+    if not data:
+        return None
+    rows = data.get("financial_metrics") or []
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    series: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        compact = _compact(
+            {
+                "report_period": raw.get("report_period"),
+                "revenue": _get_num(raw, "revenue"),
+                "gross_margin": _get_num(raw, "gross_margin"),
+                "operating_margin": _get_num(raw, "operating_margin"),
+                "net_margin": _get_num(raw, "net_margin"),
+                "revenue_growth": _get_num(raw, "revenue_growth"),
+                "free_cash_flow_growth": _get_num(raw, "free_cash_flow_growth"),
+            }
+        )
+        if compact.get("report_period"):
+            series.append(compact)
+    if not series:
+        return None
+    # ISO date strings sort correctly: oldest → newest.
+    series.sort(key=lambda r: str(r.get("report_period") or ""))
+    return series
+
+
 # ---- helpers ---------------------------------------------------------------
 
 

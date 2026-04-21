@@ -402,6 +402,51 @@ async function waitForReady(win: BrowserWindow, timeoutMs = 8_000): Promise<void
   });
 }
 
+/**
+ * Find every http(s) <img src> in the HTML, fetch the bytes, and replace the
+ * src with a base64 data URI. This makes the exported PDF self-contained so
+ * it stays readable if the backend is later offline or the file is copied
+ * to another machine.
+ */
+async function inlineImages(html: string): Promise<string> {
+  const regex = /<img([^>]*?)\bsrc=(['"])(https?:\/\/[^'"]+)\2([^>]*)>/gi;
+  const tasks: Promise<{ match: string; replacement: string }>[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(html)) !== null) {
+    const full = m[0];
+    if (seen.has(full)) continue;
+    seen.add(full);
+    const preAttrs = m[1] ?? "";
+    const quote = m[2] ?? '"';
+    const url = m[3] ?? "";
+    const postAttrs = m[4] ?? "";
+    tasks.push(
+      (async () => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`status ${res.status}`);
+          const buf = Buffer.from(await res.arrayBuffer());
+          const mime = res.headers.get("content-type") ?? "image/png";
+          const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
+          const replacement = `<img${preAttrs}src=${quote}${dataUri}${quote}${postAttrs}>`;
+          return { match: full, replacement };
+        } catch {
+          // Leave the original tag alone on failure; the PDF may render a
+          // broken image icon but the export won't be blocked.
+          return { match: full, replacement: full };
+        }
+      })(),
+    );
+  }
+  const results = await Promise.all(tasks);
+  let out = html;
+  for (const { match, replacement } of results) {
+    out = out.split(match).join(replacement);
+  }
+  return out;
+}
+
 ipcMain.handle(
   "pdf:exportMemo",
   async (evt, args: ExportMemoArgs): Promise<string | null> => {
@@ -415,13 +460,17 @@ ipcMain.handle(
     });
     if (result.canceled || !result.filePath) return null;
 
+    // Inline every http image into a data URI so the PDF is self-contained
+    // and survives the backend going offline or the file being moved.
+    const htmlInlined = await inlineImages(html);
+
     const pdfWin = new BrowserWindow({
       show: false,
       webPreferences: { sandbox: true, offscreen: false },
     });
     try {
       await pdfWin.loadURL(
-        "data:text/html;charset=utf-8," + encodeURIComponent(html),
+        "data:text/html;charset=utf-8," + encodeURIComponent(htmlInlined),
       );
       await waitForReady(pdfWin);
       const pdf = await pdfWin.webContents.printToPDF({

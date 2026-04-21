@@ -53,3 +53,56 @@ def test_save_and_url(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = charts.save_chart_png("job-abc", "price", png)
     assert path.exists()
     assert charts.chart_url("job-abc", "price").endswith("/charts/job-abc/price.png")
+
+
+def test_render_basket_chart_returns_png() -> None:
+    basket = {
+        "long": [
+            {"ticker": "NVDA", "weight": 35.0},
+            {"ticker": "AVGO", "weight": 20.0},
+        ],
+        "short": [
+            {"ticker": "DDOG", "weight": 15.0},
+            {"ticker": "MDB", "weight": 10.0},
+        ],
+    }
+    data = charts.render_basket_chart(basket)
+    assert data is not None
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert len(data) > 1_000
+
+
+def test_render_basket_chart_empty_returns_none() -> None:
+    assert charts.render_basket_chart({"long": [], "short": []}) is None
+    assert charts.render_basket_chart({}) is None
+
+
+def test_render_margin_trajectory_returns_png() -> None:
+    def row(period: str, gm: float, om: float, nm: float) -> dict[str, object]:
+        return {
+            "report_period": period,
+            "gross_margin": gm,
+            "operating_margin": om,
+            "net_margin": nm,
+        }
+
+    series = [
+        row("2023-03-31", 0.55, 0.30, 0.22),
+        row("2023-06-30", 0.57, 0.31, 0.23),
+        row("2023-09-30", 0.60, 0.33, 0.24),
+        row("2023-12-31", 0.62, 0.34, 0.25),
+    ]
+    data = charts.render_margin_trajectory(series)
+    assert data is not None
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_render_margin_trajectory_empty_series_returns_none() -> None:
+    assert charts.render_margin_trajectory([]) is None
+    # Series with all-None metrics short-circuits.
+    assert (
+        charts.render_margin_trajectory(
+            [{"report_period": "2024-01-01", "gross_margin": None}]
+        )
+        is None
+    )

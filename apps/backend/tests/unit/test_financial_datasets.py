@@ -180,3 +180,64 @@ async def test_non_200_returns_none(
         httpx, "AsyncClient", lambda *a, **kw: fake  # type: ignore[misc]
     )
     assert await fd.fetch_daily_closes("NVDA", date(2024, 1, 1), date(2024, 1, 5)) is None
+
+
+async def test_fetch_fundamentals_series_orders_oldest_to_newest(
+    fd_enabled: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.tools import financial_datasets as fd
+
+    fake = _FakeClient(
+        {
+            "/financial-metrics": _FakeResponse(
+                200,
+                {
+                    "financial_metrics": [
+                        {
+                            "report_period": "2024-03-31",
+                            "gross_margin": 0.66,
+                            "operating_margin": 0.33,
+                            "net_margin": 0.24,
+                        },
+                        {
+                            "report_period": "2023-09-30",
+                            "gross_margin": 0.60,
+                            "operating_margin": 0.31,
+                            "net_margin": 0.22,
+                        },
+                        {
+                            "report_period": "2023-12-31",
+                            "gross_margin": 0.63,
+                            "operating_margin": 0.32,
+                            "net_margin": 0.23,
+                        },
+                    ]
+                },
+            )
+        }
+    )
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *a, **kw: fake  # type: ignore[misc]
+    )
+
+    series = await fd.fetch_fundamentals_series("NVDA", date(2024, 4, 1), periods=8)
+    assert series is not None
+    assert [row["report_period"] for row in series] == [
+        "2023-09-30",
+        "2023-12-31",
+        "2024-03-31",
+    ]
+    assert series[-1]["gross_margin"] == 0.66
+
+
+async def test_fetch_fundamentals_series_disabled_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import settings
+    from app.tools import financial_datasets as fd
+
+    monkeypatch.setattr(settings, "financial_datasets_api_key", "")
+    assert (
+        await fd.fetch_fundamentals_series("NVDA", date(2024, 1, 1), periods=4)
+        is None
+    )

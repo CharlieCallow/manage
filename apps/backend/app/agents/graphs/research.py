@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import AgentContext, LLMAgent
@@ -25,6 +26,7 @@ from app.schemas.events import (
 from app.schemas.jobs import JobRow, ResearchInputs
 from app.store import db
 from app.tools import charts, market_data
+from app.tools import financial_datasets as fd
 
 # Post-Step-3: four analysts fan out in parallel for the full report.
 # Each one's output lands in ctx.analyst_outputs and feeds the persona's
@@ -52,9 +54,18 @@ async def run_research(
     ctx.user_prompt = inputs.prompt
     ctx.style = inputs.style
 
-    # 1. Snapshot
+    # 1. Snapshot + fundamentals series in parallel. Snapshot is the
+    # primary input; the fundamentals series is best-effort (fd.ai only).
     yield StatusEvent(agent="graph", status="fetching_market_data")
-    ctx.snapshot = await market_data.fetch_snapshot(inputs.ticker)
+    snapshot_task = asyncio.create_task(market_data.fetch_snapshot(inputs.ticker))
+    series_task = asyncio.create_task(
+        fd.fetch_fundamentals_series(inputs.ticker, datetime.now(UTC).date())
+    )
+    ctx.snapshot = await snapshot_task
+    try:
+        fundamentals_series = await series_task
+    except Exception:
+        fundamentals_series = None
 
     if ctx.budget.exceeded():
         yield StatusEvent(agent="graph", status="budget_exceeded")
@@ -77,43 +88,55 @@ async def run_research(
             memo_chunks.append(event.text)
         yield event
 
-    # 4. Charts + financials table
+    # 4. Chart + table rendering. Basket chart needs the parsed meta, so it
+    # happens after synthesis; the rest doesn't depend on the memo.
     price_chart_url = _render_price_chart(job.id, ctx.snapshot)
+    margin_chart_url = _render_margin_chart(job.id, fundamentals_series)
     fundamentals_table = _render_fundamentals_table(ctx.snapshot)
 
-    # 5. Memo artifact (with parsed rating + targets, augmented with charts +
-    # a point-in-time financials table when available)
     memo_md = "".join(memo_chunks).strip()
-    if memo_md:
-        memo_md = _augment_memo(
-            memo_md,
-            price_chart_url=price_chart_url,
-            fundamentals_table=fundamentals_table,
-        )
-        meta = _parse_memo_meta(memo_md)
-        content_json: dict[str, Any] = {
-            "ticker": inputs.ticker,
-            "persona": inputs.persona,
-            "style": inputs.style,
-            "analyst_outputs": ctx.analyst_outputs,
-            "price_chart_url": price_chart_url,
-            **meta,
-        }
-        artifact_id = db.insert_artifact(
+    if not memo_md:
+        return
+
+    meta = _parse_memo_meta(memo_md)
+    basket_chart_url = _render_basket_chart(job.id, meta.get("basket"))
+
+    memo_md = _augment_memo(
+        memo_md,
+        price_chart_url=price_chart_url,
+        margin_chart_url=margin_chart_url,
+        basket_chart_url=basket_chart_url,
+        fundamentals_table=fundamentals_table,
+    )
+    # Re-parse AFTER augmentation so the artifact's parsed meta reflects any
+    # structure the injected content added (e.g. the basket stays the same
+    # since the raw BASKET block is unchanged).
+    meta = _parse_memo_meta(memo_md)
+    content_json: dict[str, Any] = {
+        "ticker": inputs.ticker,
+        "persona": inputs.persona,
+        "style": inputs.style,
+        "analyst_outputs": ctx.analyst_outputs,
+        "price_chart_url": price_chart_url,
+        "margin_chart_url": margin_chart_url,
+        "basket_chart_url": basket_chart_url,
+        **meta,
+    }
+    artifact_id = db.insert_artifact(
+        job_id=job.id,
+        kind="memo",
+        content_md=memo_md,
+        content_json=json.dumps(content_json),
+    )
+    yield ArtifactEvent(
+        artifact=ArtifactPayload(
+            id=artifact_id,
             job_id=job.id,
             kind="memo",
             content_md=memo_md,
-            content_json=json.dumps(content_json),
+            content_json=content_json,
         )
-        yield ArtifactEvent(
-            artifact=ArtifactPayload(
-                id=artifact_id,
-                job_id=job.id,
-                kind="memo",
-                content_md=memo_md,
-                content_json=content_json,
-            )
-        )
+    )
 
 
 def _render_price_chart(
@@ -132,6 +155,42 @@ def _render_price_chart(
     except Exception:
         return None
     return charts.chart_url(job_id, "price")
+
+
+def _render_margin_chart(
+    job_id: str, series: list[dict[str, Any]] | None
+) -> str | None:
+    if not series:
+        return None
+    try:
+        png = charts.render_margin_trajectory(series)
+    except Exception:
+        return None
+    if not png:
+        return None
+    try:
+        charts.save_chart_png(job_id, "margins", png)
+    except Exception:
+        return None
+    return charts.chart_url(job_id, "margins")
+
+
+def _render_basket_chart(
+    job_id: str, basket: dict[str, list[dict[str, Any]]] | None
+) -> str | None:
+    if not basket:
+        return None
+    try:
+        png = charts.render_basket_chart(basket)
+    except Exception:
+        return None
+    if not png:
+        return None
+    try:
+        charts.save_chart_png(job_id, "basket", png)
+    except Exception:
+        return None
+    return charts.chart_url(job_id, "basket")
 
 
 _FUNDAMENTALS_LABELS: list[tuple[str, str, str]] = [
@@ -198,34 +257,44 @@ def _augment_memo(
     memo_md: str,
     *,
     price_chart_url: str | None,
+    margin_chart_url: str | None,
+    basket_chart_url: str | None,
     fundamentals_table: str | None,
 ) -> str:
-    """Inject the price chart and financials table into the memo body.
+    """Inject charts and the financials table into the memo body.
 
-    Placement: insert after the header block (the fields section ends at the
-    first `##` heading) so the banner data stays at the top.
+    Price chart + financials table go at the top (after the header fields,
+    before the first ##). Margin trajectory rides just below. Basket chart
+    lands at the very end of the memo so it sits next to the basket block.
     """
-    parts: list[str] = []
+    head_parts: list[str] = []
     if price_chart_url:
-        parts.append(
-            f"![{'Price chart'}]({price_chart_url})"
-        )
+        head_parts.append(f"![Price chart]({price_chart_url})")
     if fundamentals_table:
-        parts.append(fundamentals_table)
-    if not parts:
-        return memo_md
+        head_parts.append(fundamentals_table)
+    if margin_chart_url:
+        head_parts.append(f"![Margin trajectory]({margin_chart_url})")
 
-    addition = "\n\n" + "\n\n".join(parts) + "\n\n"
+    updated = memo_md
+    if head_parts:
+        addition = "\n\n" + "\n\n".join(head_parts) + "\n\n"
+        lines = updated.splitlines()
+        spliced = False
+        for idx, line in enumerate(lines):
+            if line.startswith("## "):
+                before = "\n".join(lines[:idx]).rstrip()
+                after = "\n".join(lines[idx:])
+                updated = f"{before}\n{addition}{after}"
+                spliced = True
+                break
+        if not spliced:
+            updated = updated.rstrip() + addition
 
-    # Splice just before the first "## " section heading if we can find one,
-    # otherwise append at the end.
-    lines = memo_md.splitlines()
-    for idx, line in enumerate(lines):
-        if line.startswith("## "):
-            before = "\n".join(lines[:idx]).rstrip()
-            after = "\n".join(lines[idx:])
-            return f"{before}\n{addition}{after}"
-    return memo_md.rstrip() + addition
+    if basket_chart_url:
+        updated = updated.rstrip() + (
+            f"\n\n![Basket weights]({basket_chart_url})\n"
+        )
+    return updated
 
 
 def _parse_memo_meta(memo_md: str) -> dict[str, Any]:
