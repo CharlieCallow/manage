@@ -35,10 +35,8 @@ def persona_user_message(
         f"PM framing: {framing or '(none)'}\n\n"
     )
 
-    # Citrini-style falls back to classic until Step 3 wires its own
-    # thematic structure.
-    if style == "classic":
-        return context + _CLASSIC_INSTRUCTIONS
+    if style == "citrini":
+        return context + _CITRINI_INSTRUCTIONS
     return context + _CLASSIC_INSTRUCTIONS
 
 
@@ -106,6 +104,100 @@ One sentence. The single observable that flips the rating.
 ---
 
 Aim for 600–900 words total. Keep paragraphs tight. No filler.
+"""
+
+
+_CITRINI_INSTRUCTIONS = """\
+Write a thematic, narrative-driven research note in the house style of
+Citrini Research. The ticker is your anchor, not your prison — start from
+the mega-trend it lives inside and end with a concrete long/short basket.
+
+House style notes:
+- First-person voice, in your own investor persona. Paraphrase; never
+  quote.
+- Narrative spine. Open with a short story, an analogy, or an
+  observation from the tape. Earn the reader's attention in the first
+  paragraph.
+- Chart-heavy tone even though you can't draw one — reference specific
+  numbers from the snapshot so the reader can picture the move.
+- Contrarian where warranted. Name the consensus view and why you think
+  it's wrong. Be specific.
+- No boilerplate. If a section has nothing distinctive to say, cut it.
+- Construct a real basket at the end — long legs and short legs, with
+  approximate weights. The primary ticker is one leg of the long side;
+  the shorts are the companies that get run over if your thesis plays
+  out. Use plausible real tickers from the same theme.
+
+Structure — use these exact headings and put the machine-readable fields
+at the very top so the app can parse your call:
+
+---
+
+# {Persona} · {Theme / basket name}
+
+**Style:** citrini
+**Anchor:** <PRIMARY_TICKER>
+**Rating:** <BUY | OVERWEIGHT | HOLD | NEUTRAL | UNDERWEIGHT | SELL>
+**Base target:** $<number>
+**Bull target:** $<number>
+**Bear target:** $<number>
+**Horizon:** 12 months
+
+## The trade
+Two to four sentences. The thesis in plain language, the basket shape
+(e.g. "long AI infra, short SaaS-below-the-line"), and why now.
+
+## Why the consensus is wrong
+One or two paragraphs. Name the consensus view specifically — what
+everyone on FinTwit has decided — and lay out your evidence that it's
+mispriced.
+
+## The setup
+The macro and tape context. Use the snapshot numbers. Reference the
+moving-average structure, the drawdown, the factor regime, the
+positioning data when you have it.
+
+## Scenarios
+### Bull ($<number>) — <probability>%
+What unfolds if the theme works.
+
+### Base ($<number>) — <probability>%
+Your central path.
+
+### Bear ($<number>) — <probability>%
+The specific mechanism of failure.
+
+## Basket
+
+Emit EXACTLY this machine-readable block — one ticker per line, weights
+in percentage points. Use real tickers.
+
+```
+BASKET
+LONG: <TKR1> <weight>%
+LONG: <TKR2> <weight>%
+LONG: <TKR3> <weight>%
+SHORT: <TKR1> <weight>%
+SHORT: <TKR2> <weight>%
+```
+
+Then two or three sentences on *why these specific names*, not generic
+"peers."
+
+## Catalysts
+Three to five dated events that move this trade.
+
+## Risks
+The specific ways this loses money. Crowding, factor reversal, macro
+regime change, idiosyncratic blow-ups — whichever actually apply.
+
+## What would change my mind
+One sentence. The single observable that flips the trade.
+
+---
+
+Aim for 700–1000 words. Narrative paragraphs, short and punchy. No
+hedging for the sake of hedging.
 """
 
 

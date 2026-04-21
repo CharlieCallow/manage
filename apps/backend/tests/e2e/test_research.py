@@ -90,6 +90,69 @@ def test_list_jobs_includes_ticker_and_persona(client: TestClient) -> None:
         assert mine["persona"] == "burry"
 
 
+def test_research_fans_out_to_four_analysts(client: TestClient) -> None:
+    with client:
+        resp = client.post(
+            "/jobs",
+            json={
+                "type": "research",
+                "inputs": {"persona": "buffett", "ticker": "KO"},
+                "budget_usd": 1.0,
+            },
+        )
+        job_id = resp.json()["job_id"]
+        agents_seen: set[str] = set()
+        with client.websocket_connect(f"/ws/jobs/{job_id}") as ws:
+            while True:
+                event = ws.receive_json()
+                if event["type"] == "status" and event.get("agent"):
+                    agents_seen.add(event["agent"])
+                if event["type"] == "job_done":
+                    break
+        assert {"valuation", "fundamentals", "macro", "technicals"}.issubset(
+            agents_seen
+        )
+        assert "buffett" in agents_seen
+
+
+def test_citrini_style_parses_basket(client: TestClient) -> None:
+    with client:
+        resp = client.post(
+            "/jobs",
+            json={
+                "type": "research",
+                "inputs": {
+                    "persona": "druckenmiller",
+                    "ticker": "NVDA",
+                    "style": "citrini",
+                },
+                "budget_usd": 1.0,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        job_id = resp.json()["job_id"]
+        events: list[dict[str, Any]] = []
+        with client.websocket_connect(f"/ws/jobs/{job_id}") as ws:
+            while True:
+                event = ws.receive_json()
+                events.append(event)
+                if event["type"] == "job_done":
+                    break
+
+        artifact = next(e for e in events if e["type"] == "artifact")["artifact"]
+        assert artifact["kind"] == "memo"
+        meta = artifact["content_json"]
+        assert meta["style"] == "citrini"
+        assert meta["rating"] == "BUY"
+        basket = meta["basket"]
+        assert basket is not None
+        longs = {row["ticker"]: row["weight"] for row in basket["long"]}
+        shorts = {row["ticker"]: row["weight"] for row in basket["short"]}
+        assert longs["NVDA"] == 35.0
+        assert "AVGO" in longs
+        assert "DDOG" in shorts
+
+
 def test_budget_enforced_when_already_exceeded(client: TestClient) -> None:
     with client:
         resp = client.post(

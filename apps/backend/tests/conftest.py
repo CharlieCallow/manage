@@ -64,6 +64,16 @@ class FakeMessages:
             # so each speaker produces distinguishable ideas.
             key = _match_key(system, self._by_key) or "default"
             chunks = _IDEATION_CHUNKS.get(key, _IDEATION_CHUNKS["default"])
+        elif "Citrini Research." in user:
+            # Citrini-style research synthesis — emit a memo with a
+            # parseable basket block.
+            key = _match_key(system, self._by_key) or "default"
+            persona_name = {
+                "mold of Warren Buffett": "Buffett",
+                "mold of Stanley Druckenmiller": "Druckenmiller",
+                "mold of Michael": "Burry",
+            }.get(key, "Persona")
+            chunks = _citrini_memo(persona_name)
         else:
             key = _match_key(system, self._by_key) or "default"
             chunks = self._by_key.get(key, ["ok"])
@@ -112,6 +122,30 @@ def _memo(persona: str, flavor: str) -> list[str]:
         "**Horizon:** 12 months\n\n",
         "## Executive summary\n",
         f"Memo body — {flavor}.\n",
+    ]
+
+
+def _citrini_memo(persona: str) -> list[str]:
+    """Fake Citrini-style memo with a parseable basket block."""
+    return [
+        f"# {persona} · AI Infra Long/Short\n\n",
+        "**Style:** citrini\n",
+        "**Anchor:** NVDA\n",
+        "**Rating:** BUY\n",
+        "**Base target:** $1200.00\n",
+        "**Bull target:** $1500.00\n",
+        "**Bear target:** $800.00\n",
+        "**Horizon:** 12 months\n\n",
+        "## The trade\nNarrative.\n\n",
+        "## Basket\n",
+        "```\n",
+        "BASKET\n",
+        "LONG: NVDA 35%\n",
+        "LONG: AVGO 20%\n",
+        "LONG: TSM 15%\n",
+        "SHORT: DDOG 15%\n",
+        "SHORT: MDB 15%\n",
+        "```\n",
     ]
 
 

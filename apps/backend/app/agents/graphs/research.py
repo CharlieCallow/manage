@@ -26,14 +26,23 @@ from app.schemas.jobs import JobRow, ResearchInputs
 from app.store import db
 from app.tools import market_data
 
-# Phase 1: two analysts. Phase 3+ expands the stack and/or makes this
-# per-persona configurable.
-DEFAULT_ANALYSTS = ("valuation", "fundamentals")
+# Post-Step-3: four analysts fan out in parallel for the full report.
+# Each one's output lands in ctx.analyst_outputs and feeds the persona's
+# synthesis.
+DEFAULT_ANALYSTS = ("valuation", "fundamentals", "macro", "technicals")
 
 _RATING_RE = re.compile(
     r"\*\*Rating:\*\*\s*([A-Z][A-Z ]+)",
 )
 _TARGET_RE_TEMPLATE = r"\*\*{label} target:\*\*\s*\$?([\-0-9.,]+)"
+
+# Citrini basket block: a fenced block bracketed by BASKET / lines of
+# LONG|SHORT: TICKER weight%
+_BASKET_BLOCK_RE = re.compile(r"BASKET\s*\n([\s\S]+?)(?:\n\s*```|$)")
+_BASKET_LINE_RE = re.compile(
+    r"^\s*(LONG|SHORT)\s*:\s*([A-Z][A-Z0-9.\-]{0,6})\s*([0-9]+(?:\.[0-9]+)?)\s*%?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 async def run_research(
@@ -97,7 +106,7 @@ async def run_research(
 
 
 def _parse_memo_meta(memo_md: str) -> dict[str, Any]:
-    """Pull rating + bull/base/bear targets out of the memo header."""
+    """Pull rating + bull/base/bear targets + Citrini basket from the memo."""
     rating_match = _RATING_RE.search(memo_md)
     rating = rating_match.group(1).strip() if rating_match else None
 
@@ -117,7 +126,33 @@ def _parse_memo_meta(memo_md: str) -> dict[str, Any]:
             "base": target("Base"),
             "bear": target("Bear"),
         },
+        "basket": _parse_basket(memo_md),
     }
+
+
+def _parse_basket(memo_md: str) -> dict[str, list[dict[str, Any]]] | None:
+    """Pull the Citrini basket block if present."""
+    block_match = _BASKET_BLOCK_RE.search(memo_md)
+    if not block_match:
+        return None
+    block = block_match.group(1)
+    longs: list[dict[str, Any]] = []
+    shorts: list[dict[str, Any]] = []
+    for match in _BASKET_LINE_RE.finditer(block):
+        side = match.group(1).upper()
+        ticker = match.group(2).upper()
+        try:
+            weight = float(match.group(3))
+        except ValueError:
+            continue
+        entry = {"ticker": ticker, "weight": weight}
+        if side == "LONG":
+            longs.append(entry)
+        else:
+            shorts.append(entry)
+    if not longs and not shorts:
+        return None
+    return {"long": longs, "short": shorts}
 
 
 async def _run_parallel(

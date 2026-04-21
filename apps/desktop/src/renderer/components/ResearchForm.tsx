@@ -17,7 +17,7 @@ const STYLES: { id: ReportStyle; label: string; tagline: string }[] = [
   {
     id: "citrini",
     label: "Citrini",
-    tagline: "thematic narrative — coming in Step 3",
+    tagline: "thematic narrative + long/short basket",
   },
 ];
 

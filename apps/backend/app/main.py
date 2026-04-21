@@ -10,11 +10,15 @@ from fastapi import FastAPI
 from app.agents.analysts.fundamentals import (
     default_prompt_template as fundamentals_prompt,
 )
+from app.agents.analysts.macro import default_prompt_template as macro_prompt
 from app.agents.analysts.moderator import (
     default_prompt_template as moderator_prompt,
 )
 from app.agents.analysts.pm import default_prompt_template as pm_prompt
 from app.agents.analysts.risk import default_prompt_template as risk_prompt
+from app.agents.analysts.technicals import (
+    default_prompt_template as technicals_prompt,
+)
 from app.agents.analysts.valuation import default_prompt_template as valuation_prompt
 from app.agents.personas.buffett import default_prompt_template as buffett_prompt
 from app.agents.personas.burry import default_prompt_template as burry_prompt
@@ -44,6 +48,8 @@ def _seed_agents() -> None:
     db.upsert_persona("burry", burry_prompt(), "claude-sonnet-4-6")
     db.upsert_analyst("valuation", valuation_prompt(), "claude-sonnet-4-6")
     db.upsert_analyst("fundamentals", fundamentals_prompt(), "claude-sonnet-4-6")
+    db.upsert_analyst("macro", macro_prompt(), "claude-sonnet-4-6")
+    db.upsert_analyst("technicals", technicals_prompt(), "claude-sonnet-4-6")
     db.upsert_analyst("moderator", moderator_prompt(), "claude-haiku-4-5")
     db.upsert_analyst("risk", risk_prompt(), "claude-sonnet-4-6")
     db.upsert_analyst("pm", pm_prompt(), "claude-opus-4-7")

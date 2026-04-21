@@ -4,9 +4,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.agents.analysts.fundamentals import FundamentalsAnalyst
+from app.agents.analysts.macro import MacroAnalyst
 from app.agents.analysts.moderator import ModeratorAgent
 from app.agents.analysts.pm import PMAnalyst
 from app.agents.analysts.risk import RiskAnalyst
+from app.agents.analysts.technicals import TechnicalsAnalyst
 from app.agents.analysts.valuation import ValuationAnalyst
 from app.agents.base import LLMAgent
 from app.agents.personas.buffett import BuffettAgent
@@ -29,6 +31,8 @@ PERSONA_FACTORIES: dict[str, _PersonaFactory] = {
 ANALYST_FACTORIES: dict[str, _AnalystFactory] = {
     "valuation": ValuationAnalyst,
     "fundamentals": FundamentalsAnalyst,
+    "macro": MacroAnalyst,
+    "technicals": TechnicalsAnalyst,
     "moderator": ModeratorAgent,
     "risk": RiskAnalyst,
     "pm": PMAnalyst,

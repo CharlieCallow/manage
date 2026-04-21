@@ -5,6 +5,11 @@ interface Props {
   artifact: ArtifactPayload;
 }
 
+interface BasketLeg {
+  ticker: string;
+  weight: number;
+}
+
 interface MemoMeta {
   rating?: string | null;
   style?: string | null;
@@ -14,6 +19,10 @@ interface MemoMeta {
     base?: number | null;
     bull?: number | null;
     bear?: number | null;
+  } | null;
+  basket?: {
+    long?: BasketLeg[];
+    short?: BasketLeg[];
   } | null;
 }
 
@@ -41,11 +50,18 @@ export function MemoView({ artifact }: Props): JSX.Element {
   const ratingClass = RATING_COLORS[rating] ?? "bg-neutral-800 text-neutral-200";
   const targets = meta.targets ?? {};
 
-  // Strip the header fields from the body since the banner renders them.
-  const body = md.replace(
-    /^\s*\*\*(Rating|Base target|Bull target|Bear target|Horizon):\*\*[^\n]*\n/gm,
-    "",
-  );
+  // Strip the header fields + raw BASKET block from the body since the
+  // banner and basket card render them separately.
+  const body = md
+    .replace(
+      /^\s*\*\*(Style|Anchor|Rating|Base target|Bull target|Bear target|Horizon):\*\*[^\n]*\n/gm,
+      "",
+    )
+    .replace(/```\s*\nBASKET\n[\s\S]+?```/g, "");
+
+  const basket = meta.basket;
+  const hasBasket =
+    basket && ((basket.long?.length ?? 0) > 0 || (basket.short?.length ?? 0) > 0);
 
   return (
     <article className="border border-emerald-900 rounded bg-emerald-950/20">
@@ -74,7 +90,58 @@ export function MemoView({ artifact }: Props): JSX.Element {
       <div className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-100 prose-p:text-neutral-200 prose-li:text-neutral-200 prose-strong:text-neutral-100 prose-hr:border-neutral-800 px-4 py-3">
         <ReactMarkdown>{body}</ReactMarkdown>
       </div>
+      {hasBasket && basket && (
+        <div className="border-t border-emerald-900 px-4 py-3">
+          <h3 className="text-xs text-emerald-400 uppercase tracking-wide mb-2">
+            Basket
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <BasketLegList title="Long" rows={basket.long ?? []} tone="emerald" />
+            <BasketLegList title="Short" rows={basket.short ?? []} tone="rose" />
+          </div>
+        </div>
+      )}
     </article>
+  );
+}
+
+function BasketLegList({
+  title,
+  rows,
+  tone,
+}: {
+  title: string;
+  rows: BasketLeg[];
+  tone: "emerald" | "rose";
+}): JSX.Element {
+  const header = tone === "emerald" ? "text-emerald-400" : "text-rose-400";
+  if (rows.length === 0) {
+    return (
+      <div>
+        <div className={`text-xs uppercase tracking-wide mb-1 ${header}`}>
+          {title}
+        </div>
+        <div className="text-xs text-neutral-600">(none)</div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className={`text-xs uppercase tracking-wide mb-1 ${header}`}>
+        {title}
+      </div>
+      <ul className="flex flex-col gap-1 font-mono">
+        {rows.map((r) => (
+          <li
+            key={`${title}-${r.ticker}`}
+            className="flex justify-between text-neutral-200"
+          >
+            <span>{r.ticker}</span>
+            <span className="text-neutral-400">{r.weight.toFixed(0)}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

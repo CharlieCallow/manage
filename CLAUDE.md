@@ -4,7 +4,7 @@ Project orientation for Claude Code. Read this first, every session. Keep it in 
 
 ## 1. What this is
 
-A local-first desktop app where the user plays PM of an AI-powered hedge fund. A team of Claude-backed agents (investor personas, analysts, risk, PM) produces research, debates theses, and backtests decisions. The user moves between rooms — Office, Ideas, Research Desk, Committee Room, Trading Floor, Time Machine, Roster — that are different views over one underlying fund state.
+A local-first desktop app where the user plays PM of an AI-powered hedge fund. A team of Claude-backed agents (investor personas, analysts, risk, PM) produces research, debates theses, and backtests decisions. The user moves between rooms — Office, Ideas, Research Desk, Committee Room, Trading Floor, Time Machine, Archive, Roster — that are different views over one underlying fund state.
 
 Inspirations: multica-ai/multica (native desktop shell, ACP-style session orchestration) and virattt/ai-hedge-fund (persona + analyst + risk + PM graph).
 
@@ -14,7 +14,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 **Shipped baseline — post-Phase 5.** The original §12 phased plan is complete: all six rooms (Office, Research Desk, Committee Room, Trading Floor, Time Machine, Roster) are live.
 
-A seventh room — **Ideas** — was added on top of the baseline. It hosts an `ideation` job type: each enabled persona surfaces N candidate tickers with a one-sentence thesis, candidates land in the `ideas` table as `pending`, and the user approves (spawns a full research job using the idea's thesis as framing) or dismisses each one. Idea rows carry a link back to the research job they spawned.
+Seventh room — **Ideas** — hosts an `ideation` job type: each enabled persona surfaces N candidate tickers with a one-sentence thesis, candidates land in the `ideas` table as `pending`, and the user approves (spawns a full research job using the idea's thesis as framing) or dismisses each one.
+
+Eighth room — **Archive** — central browser for every job's inputs and outputs. The Office recent-jobs sidebar and the Ideas "decided history" both deep-link here.
+
+Research memos now follow a proper sell-side initiation structure with a parsed rating + bull/base/bear targets. A `style` field on `ResearchInputs` (`classic` | `citrini`) switches the memo format — the Citrini variant produces a thematic narrative with a parseable long/short basket at the end. Research fans out to four analysts (valuation, fundamentals, macro, technicals) in parallel; the persona synthesizes.
 
 New post-baseline work lands here — update this line as it ships.
 
@@ -57,7 +61,7 @@ Never commit `data/fund.sqlite`, `.env`, or anything under `apps/backend/logs/`.
 All tables live in `fund.sqlite`. Schema in `apps/backend/migrations/001_init.sql`.
 
 - `personas` — id, name, prompt_template, model, enabled, config_json, created_at
-- `analysts` — same shape as personas. Houses research analysts and committee system roles. Seeded: valuation, sentiment, fundamentals, technicals, risk, pm, moderator
+- `analysts` — same shape as personas. Houses research analysts and committee system roles. Seeded: valuation, sentiment, fundamentals, technicals, macro, risk, pm, moderator
 - `ideas` — id, ideation_job_id, persona, ticker, thesis, status (pending|approved|dismissed), research_job_id (FK to jobs when approved), created_at, updated_at
 - `jobs` — id, type (research|committee|backtest), inputs_json, status, cost_usd, started_at, finished_at, error
 - `artifacts` — id, job_id, kind (memo|transcript|signal|dcf|backtest_report), content_md, content_json, created_at
