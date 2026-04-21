@@ -153,6 +153,70 @@ def test_citrini_style_parses_basket(client: TestClient) -> None:
         assert "DDOG" in shorts
 
 
+def test_memo_injects_price_chart_and_financials_table(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Snapshot with weekly closes + fundamentals → memo gains a chart
+    image and a markdown financials table."""
+
+    async def fake_snapshot(ticker: str) -> dict[str, Any]:
+        return {
+            "ticker": ticker,
+            "as_of": "2024-04-01",
+            "price": 100.0,
+            "weekly_closes_52w": [
+                {"date": f"2023-{((i % 12) + 1):02d}-01", "close": 90.0 + i * 0.8}
+                for i in range(52)
+            ],
+            "fundamentals": {
+                "report_period": "2023-12-31",
+                "pe_ratio": 25.1,
+                "gross_margin": 0.64,
+                "revenue": 85_000_000_000,
+                "free_cash_flow": 20_000_000_000,
+            },
+            "data_source": "fd.ai+yfinance",
+        }
+
+    from app.config import settings
+    from app.tools import market_data
+
+    # Chart writes land in tmp for this test.
+    monkeypatch.setattr(settings, "database_path", str(tmp_path / "fund.sqlite"))
+    monkeypatch.setattr(market_data, "fetch_snapshot", fake_snapshot)
+
+    with client:
+        resp = client.post(
+            "/jobs",
+            json={
+                "type": "research",
+                "inputs": {"persona": "buffett", "ticker": "NVDA"},
+                "budget_usd": 1.0,
+            },
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+
+        events: list[dict[str, Any]] = []
+        with client.websocket_connect(f"/ws/jobs/{job_id}") as ws:
+            while True:
+                event = ws.receive_json()
+                events.append(event)
+                if event["type"] == "job_done":
+                    break
+
+        artifact = next(e for e in events if e["type"] == "artifact")["artifact"]
+        md = artifact["content_md"]
+        assert "Point-in-time financials" in md
+        assert "| P/E (TTM) | 25.10 |" in md
+        assert "Revenue (TTM)" in md
+        assert f"/charts/{job_id}/price.png" in md
+        # Chart URL also available in the JSON sidecar for downstream use.
+        assert artifact["content_json"]["price_chart_url"].endswith(
+            f"/charts/{job_id}/price.png"
+        )
+
+
 def test_budget_enforced_when_already_exceeded(client: TestClient) -> None:
     with client:
         resp = client.post(

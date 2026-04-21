@@ -224,6 +224,12 @@ export interface ManageApi {
     ideationJobId?: string | undefined;
   }): Promise<Idea[]>;
   decideIdea(id: number, body: IdeaDecision): Promise<ApproveResult>;
+  exportMemoPdf(args: {
+    title: string;
+    suggestedName: string;
+    contentMd: string;
+    headerHtml?: string | undefined;
+  }): Promise<string | null>;
 }
 
 declare global {

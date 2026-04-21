@@ -69,6 +69,12 @@ const api: ManageApi = {
   }): Promise<Idea[]> => ipcRenderer.invoke("ideas:list", opts ?? {}),
   decideIdea: (id: number, body: IdeaDecision): Promise<ApproveResult> =>
     ipcRenderer.invoke("ideas:decide", id, body),
+  exportMemoPdf: (args: {
+    title: string;
+    suggestedName: string;
+    contentMd: string;
+    headerHtml?: string;
+  }): Promise<string | null> => ipcRenderer.invoke("pdf:exportMemo", args),
 };
 
 contextBridge.exposeInMainWorld("api", api);

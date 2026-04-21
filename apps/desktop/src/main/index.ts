@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { marked } from "marked";
 import { WebSocket } from "ws";
 import type {
   ApproveResult,
@@ -280,6 +282,158 @@ ipcMain.handle(
       throw new Error(`ideas decide failed: ${res.status} ${text}`);
     }
     return (await res.json()) as ApproveResult;
+  },
+);
+
+interface ExportMemoArgs {
+  title: string;
+  suggestedName: string;
+  contentMd: string;
+  headerHtml?: string | undefined;
+}
+
+async function renderMemoHtml(args: ExportMemoArgs): Promise<string> {
+  const bodyHtml = await marked.parse(args.contentMd, { gfm: true });
+  // A self-signal pattern: after all <img> tags load (or error), flip the
+  // document title. Main watches for that to know when to print.
+  const readySignal = `
+    <script>
+      window.addEventListener('load', function () {
+        var imgs = Array.from(document.images);
+        function done() { document.title = '__ready__'; }
+        if (imgs.length === 0) return done();
+        var left = imgs.length;
+        imgs.forEach(function (img) {
+          if (img.complete) {
+            if (--left === 0) done();
+          } else {
+            img.addEventListener('load',  function () { if (--left === 0) done(); });
+            img.addEventListener('error', function () { if (--left === 0) done(); });
+          }
+        });
+      });
+    </script>
+  `;
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(args.title)}</title>
+    <style>
+      @page { size: A4; margin: 18mm 18mm; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 11pt;
+        color: #111;
+        line-height: 1.45;
+        margin: 0;
+      }
+      h1 { font-size: 18pt; margin: 0 0 0.5em 0; }
+      h2 { font-size: 13pt; margin: 1.4em 0 0.4em 0; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
+      h3 { font-size: 11pt; margin: 1em 0 0.3em 0; }
+      p { margin: 0.4em 0; }
+      hr { border: 0; border-top: 1px solid #ddd; margin: 1.2em 0; }
+      strong { color: #000; }
+      em { color: #333; }
+      table { border-collapse: collapse; margin: 0.6em 0; width: 100%; font-size: 10pt; }
+      th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+      th { background: #f4f4f4; }
+      code, pre {
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 9.5pt;
+      }
+      pre { background: #f6f6f6; padding: 8px; border-radius: 4px; overflow: auto; }
+      img { max-width: 100%; height: auto; display: block; margin: 0.6em 0; }
+      .memo-header {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin-bottom: 14px;
+        font-size: 10pt;
+        background: #fafafa;
+      }
+      .memo-header .rating {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        background: #111;
+        color: #fff;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        margin-right: 10px;
+      }
+    </style>
+    ${readySignal}
+  </head>
+  <body>
+    ${args.headerHtml ?? ""}
+    ${bodyHtml}
+  </body>
+</html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function waitForReady(win: BrowserWindow, timeoutMs = 8_000): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const start = Date.now();
+    const onTitle = (_: unknown, title: string): void => {
+      if (title === "__ready__") {
+        win.webContents.removeListener("page-title-updated", onTitle);
+        resolve();
+      }
+    };
+    win.webContents.on("page-title-updated", onTitle);
+    // Safety: proceed after timeout even if no signal (e.g. no images).
+    const poll = setInterval(() => {
+      if (Date.now() - start > timeoutMs) {
+        clearInterval(poll);
+        win.webContents.removeListener("page-title-updated", onTitle);
+        resolve();
+      }
+    }, 250);
+  });
+}
+
+ipcMain.handle(
+  "pdf:exportMemo",
+  async (evt, args: ExportMemoArgs): Promise<string | null> => {
+    const parent = BrowserWindow.fromWebContents(evt.sender) ?? undefined;
+    const html = await renderMemoHtml(args);
+
+    const result = await dialog.showSaveDialog(parent ?? new BrowserWindow(), {
+      title: "Export memo as PDF",
+      defaultPath: args.suggestedName,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+
+    const pdfWin = new BrowserWindow({
+      show: false,
+      webPreferences: { sandbox: true, offscreen: false },
+    });
+    try {
+      await pdfWin.loadURL(
+        "data:text/html;charset=utf-8," + encodeURIComponent(html),
+      );
+      await waitForReady(pdfWin);
+      const pdf = await pdfWin.webContents.printToPDF({
+        printBackground: true,
+        pageSize: "A4",
+        margins: { top: 0.7, bottom: 0.7, left: 0.7, right: 0.7 },
+      });
+      await writeFile(result.filePath, pdf);
+      return result.filePath;
+    } finally {
+      pdfWin.destroy();
+    }
   },
 );
 

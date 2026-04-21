@@ -24,7 +24,7 @@ from app.schemas.events import (
 )
 from app.schemas.jobs import JobRow, ResearchInputs
 from app.store import db
-from app.tools import market_data
+from app.tools import charts, market_data
 
 # Post-Step-3: four analysts fan out in parallel for the full report.
 # Each one's output lands in ctx.analyst_outputs and feeds the persona's
@@ -77,15 +77,26 @@ async def run_research(
             memo_chunks.append(event.text)
         yield event
 
-    # 4. Memo artifact (with parsed rating + targets)
+    # 4. Charts + financials table
+    price_chart_url = _render_price_chart(job.id, ctx.snapshot)
+    fundamentals_table = _render_fundamentals_table(ctx.snapshot)
+
+    # 5. Memo artifact (with parsed rating + targets, augmented with charts +
+    # a point-in-time financials table when available)
     memo_md = "".join(memo_chunks).strip()
     if memo_md:
+        memo_md = _augment_memo(
+            memo_md,
+            price_chart_url=price_chart_url,
+            fundamentals_table=fundamentals_table,
+        )
         meta = _parse_memo_meta(memo_md)
         content_json: dict[str, Any] = {
             "ticker": inputs.ticker,
             "persona": inputs.persona,
             "style": inputs.style,
             "analyst_outputs": ctx.analyst_outputs,
+            "price_chart_url": price_chart_url,
             **meta,
         }
         artifact_id = db.insert_artifact(
@@ -103,6 +114,118 @@ async def run_research(
                 content_json=content_json,
             )
         )
+
+
+def _render_price_chart(
+    job_id: str, snapshot: dict[str, Any] | None
+) -> str | None:
+    if not snapshot:
+        return None
+    try:
+        png = charts.render_price_chart(snapshot)
+    except Exception:
+        return None
+    if not png:
+        return None
+    try:
+        charts.save_chart_png(job_id, "price", png)
+    except Exception:
+        return None
+    return charts.chart_url(job_id, "price")
+
+
+_FUNDAMENTALS_LABELS: list[tuple[str, str, str]] = [
+    # (key, label, format spec — "x1" → %, "m" → millions, "n" → number)
+    ("pe_ratio", "P/E (TTM)", "n"),
+    ("pe_forward", "P/E (forward)", "n"),
+    ("price_to_book", "P/B", "n"),
+    ("ev_to_ebitda", "EV / EBITDA", "n"),
+    ("gross_margin", "Gross margin", "x1"),
+    ("operating_margin", "Operating margin", "x1"),
+    ("net_margin", "Net margin", "x1"),
+    ("return_on_equity", "ROE", "x1"),
+    ("revenue_growth", "Revenue growth", "x1"),
+    ("free_cash_flow_growth", "FCF growth", "x1"),
+    ("revenue", "Revenue (TTM)", "m"),
+    ("free_cash_flow", "Free cash flow", "m"),
+    ("total_debt", "Total debt", "m"),
+    ("cash_and_equivalents", "Cash & equivalents", "m"),
+]
+
+
+def _format_val(value: float | int | None, kind: str) -> str:
+    if value is None:
+        return "—"
+    try:
+        if kind == "x1":  # fraction → percent
+            return f"{float(value) * 100:+.2f}%"
+        if kind == "m":
+            v = float(value)
+            for unit, scale in (("T", 1e12), ("B", 1e9), ("M", 1e6), ("K", 1e3)):
+                if abs(v) >= scale:
+                    return f"${v / scale:,.2f}{unit}"
+            return f"${v:,.0f}"
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _render_fundamentals_table(snapshot: dict[str, Any] | None) -> str | None:
+    if not snapshot:
+        return None
+    fundamentals = snapshot.get("fundamentals") or {}
+    if not fundamentals:
+        return None
+    rows: list[str] = []
+    for key, label, kind in _FUNDAMENTALS_LABELS:
+        val = fundamentals.get(key)
+        if val is None:
+            continue
+        rows.append(f"| {label} | {_format_val(val, kind)} |")
+    if not rows:
+        return None
+    report_period = fundamentals.get("report_period")
+    header = "| Metric | Value |\n| --- | --- |\n"
+    trailing = (
+        f"\n\n*As-of report period: {report_period}*"
+        if report_period
+        else ""
+    )
+    return "## Point-in-time financials\n\n" + header + "\n".join(rows) + trailing
+
+
+def _augment_memo(
+    memo_md: str,
+    *,
+    price_chart_url: str | None,
+    fundamentals_table: str | None,
+) -> str:
+    """Inject the price chart and financials table into the memo body.
+
+    Placement: insert after the header block (the fields section ends at the
+    first `##` heading) so the banner data stays at the top.
+    """
+    parts: list[str] = []
+    if price_chart_url:
+        parts.append(
+            f"![{'Price chart'}]({price_chart_url})"
+        )
+    if fundamentals_table:
+        parts.append(fundamentals_table)
+    if not parts:
+        return memo_md
+
+    addition = "\n\n" + "\n\n".join(parts) + "\n\n"
+
+    # Splice just before the first "## " section heading if we can find one,
+    # otherwise append at the end.
+    lines = memo_md.splitlines()
+    for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            before = "\n".join(lines[:idx]).rstrip()
+            after = "\n".join(lines[idx:])
+            return f"{before}\n{addition}{after}"
+    return memo_md.rstrip() + addition
 
 
 def _parse_memo_meta(memo_md: str) -> dict[str, Any]:

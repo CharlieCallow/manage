@@ -1,3 +1,4 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { ArtifactPayload } from "../types.js";
 
@@ -50,6 +51,11 @@ export function MemoView({ artifact }: Props): JSX.Element {
   const ratingClass = RATING_COLORS[rating] ?? "bg-neutral-800 text-neutral-200";
   const targets = meta.targets ?? {};
 
+  const [pdfStatus, setPdfStatus] = useState<"idle" | "rendering" | "saved" | "error">(
+    "idle",
+  );
+  const [pdfMessage, setPdfMessage] = useState<string | null>(null);
+
   // Strip the header fields + raw BASKET block from the body since the
   // banner and basket card render them separately.
   const body = md
@@ -62,6 +68,38 @@ export function MemoView({ artifact }: Props): JSX.Element {
   const basket = meta.basket;
   const hasBasket =
     basket && ((basket.long?.length ?? 0) > 0 || (basket.short?.length ?? 0) > 0);
+
+  async function onExport(): Promise<void> {
+    setPdfStatus("rendering");
+    setPdfMessage(null);
+    try {
+      const ticker = (meta.ticker ?? "memo").toString().toUpperCase();
+      const persona = (meta.persona ?? "report").toString();
+      const basketMd = hasBasket && basket ? renderBasketMarkdown(basket) : "";
+      const contentMd = body.trim() + basketMd;
+      const saved = await window.api.exportMemoPdf({
+        title: `${ticker} · ${persona}`,
+        suggestedName: `${ticker}-${persona}.pdf`,
+        contentMd,
+        headerHtml: renderHeaderHtml({
+          ticker,
+          persona,
+          rating,
+          style: meta.style ?? null,
+          targets,
+        }),
+      });
+      if (saved) {
+        setPdfStatus("saved");
+        setPdfMessage(saved);
+      } else {
+        setPdfStatus("idle");
+      }
+    } catch (err) {
+      setPdfStatus("error");
+      setPdfMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   return (
     <article className="border border-emerald-900 rounded bg-emerald-950/20">
@@ -86,7 +124,26 @@ export function MemoView({ artifact }: Props): JSX.Element {
           <Target label="Base" value={targets.base} tone="text-neutral-100" />
           <Target label="Bull" value={targets.bull} tone="text-emerald-300" />
         </div>
+        <button
+          type="button"
+          onClick={() => void onExport()}
+          disabled={pdfStatus === "rendering"}
+          title="Save the rendered memo as a PDF"
+          className="ml-2 px-3 py-1 rounded text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-100 border border-neutral-700 disabled:opacity-40"
+        >
+          {pdfStatus === "rendering" ? "Exporting…" : "Export PDF"}
+        </button>
       </header>
+      {pdfStatus === "saved" && pdfMessage && (
+        <div className="px-4 py-2 text-xs text-emerald-300 border-b border-emerald-900">
+          Saved to {pdfMessage}
+        </div>
+      )}
+      {pdfStatus === "error" && pdfMessage && (
+        <div className="px-4 py-2 text-xs text-rose-400 border-b border-rose-900">
+          PDF export failed: {pdfMessage}
+        </div>
+      )}
       <div className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-100 prose-p:text-neutral-200 prose-li:text-neutral-200 prose-strong:text-neutral-100 prose-hr:border-neutral-800 px-4 py-3">
         <ReactMarkdown>{body}</ReactMarkdown>
       </div>
@@ -162,4 +219,69 @@ function Target({
       <span className={tone}>{formatPrice(value)}</span>
     </div>
   );
+}
+
+function renderBasketMarkdown(basket: {
+  long?: BasketLeg[];
+  short?: BasketLeg[];
+}): string {
+  const longs = basket.long ?? [];
+  const shorts = basket.short ?? [];
+  const out: string[] = ["\n\n## Basket\n"];
+  if (longs.length > 0) {
+    out.push("**Long leg**\n");
+    out.push("| Ticker | Weight |\n| --- | --- |");
+    for (const l of longs) {
+      out.push(`| ${l.ticker} | ${l.weight.toFixed(0)}% |`);
+    }
+    out.push("");
+  }
+  if (shorts.length > 0) {
+    out.push("**Short leg**\n");
+    out.push("| Ticker | Weight |\n| --- | --- |");
+    for (const s of shorts) {
+      out.push(`| ${s.ticker} | ${s.weight.toFixed(0)}% |`);
+    }
+  }
+  return out.join("\n");
+}
+
+function renderHeaderHtml(args: {
+  ticker: string;
+  persona: string;
+  rating: string;
+  style: string | null;
+  targets: { bear?: number | null; base?: number | null; bull?: number | null };
+}): string {
+  const targetRow = (
+    label: string,
+    value: number | null | undefined,
+  ): string =>
+    `<span style="margin-right:18px"><strong>${label}:</strong> ${
+      value == null
+        ? "—"
+        : "$" +
+          value.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+    }</span>`;
+  const rating = args.rating
+    ? `<span class="rating">${escapeHtml(args.rating)}</span>`
+    : "";
+  const styleTag = args.style
+    ? `<span style="margin-left:10px;color:#666">style: ${escapeHtml(args.style)}</span>`
+    : "";
+  return `<div class="memo-header">
+    <div style="font-size:14pt;font-weight:600;margin-bottom:6px">${escapeHtml(args.ticker)} · ${escapeHtml(args.persona)}</div>
+    <div>${rating}${targetRow("Bear", args.targets.bear)}${targetRow("Base", args.targets.base)}${targetRow("Bull", args.targets.bull)}${styleTag}</div>
+  </div>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
