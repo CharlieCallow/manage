@@ -1,0 +1,21 @@
+{
+  "name": "manage",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-first desktop app: PM of an AI-powered hedge fund",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @manage/desktop dev",
+    "dev:backend": "cd apps/backend && poetry run uvicorn app.main:app --reload --host 127.0.0.1 --port 8787",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build:mac": "pnpm --filter @manage/desktop build:mac",
+    "build:win": "pnpm --filter @manage/desktop build:win",
+    "build:linux": "pnpm --filter @manage/desktop build:linux"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.12.0"
+}

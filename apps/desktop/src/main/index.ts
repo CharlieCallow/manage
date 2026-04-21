@@ -1,0 +1,112 @@
+import { app, BrowserWindow, ipcMain } from "electron";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { WebSocket } from "ws";
+import type {
+  CreateJobArgs,
+  CreateJobResult,
+  JobEvent,
+} from "../preload/types.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const BACKEND_HOST = process.env.BACKEND_HOST ?? "127.0.0.1";
+const BACKEND_PORT = process.env.BACKEND_PORT ?? "8787";
+const HTTP_BASE = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
+const WS_BASE = `ws://${BACKEND_HOST}:${BACKEND_PORT}`;
+
+const openSockets = new Map<string, WebSocket>();
+
+function createWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    backgroundColor: "#0a0a0a",
+    webPreferences: {
+      preload: join(__dirname, "../preload/index.mjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  if (process.env["ELECTRON_RENDERER_URL"]) {
+    void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  } else {
+    void win.loadFile(join(__dirname, "../../dist/index.html"));
+  }
+  return win;
+}
+
+function forward(win: BrowserWindow, jobId: string, event: JobEvent): void {
+  if (!win.isDestroyed()) {
+    win.webContents.send("job:event", { jobId, event });
+  }
+}
+
+ipcMain.handle(
+  "jobs:create",
+  async (evt, args: CreateJobArgs): Promise<CreateJobResult> => {
+    const win = BrowserWindow.fromWebContents(evt.sender);
+    if (!win) throw new Error("no window for sender");
+
+    const res = await fetch(`${HTTP_BASE}/jobs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`backend rejected job: ${res.status} ${text}`);
+    }
+    const body = (await res.json()) as { job_id: string };
+
+    const ws = new WebSocket(`${WS_BASE}/ws/jobs/${body.job_id}`);
+    openSockets.set(body.job_id, ws);
+
+    ws.on("message", (raw) => {
+      try {
+        const event = JSON.parse(raw.toString()) as JobEvent;
+        forward(win, body.job_id, event);
+      } catch (err) {
+        forward(win, body.job_id, {
+          type: "error",
+          message: `malformed event: ${String(err)}`,
+        });
+      }
+    });
+    ws.on("close", () => {
+      openSockets.delete(body.job_id);
+    });
+    ws.on("error", (err) => {
+      forward(win, body.job_id, {
+        type: "error",
+        message: `websocket error: ${err.message}`,
+      });
+    });
+
+    return { jobId: body.job_id };
+  },
+);
+
+ipcMain.handle("jobs:cancel", (_evt, jobId: string): void => {
+  const ws = openSockets.get(jobId);
+  if (ws) {
+    ws.close();
+    openSockets.delete(jobId);
+  }
+});
+
+app.whenReady().then(() => {
+  createWindow();
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on("window-all-closed", () => {
+  for (const ws of openSockets.values()) ws.close();
+  openSockets.clear();
+  if (process.platform !== "darwin") app.quit();
+});

@@ -1,0 +1,27 @@
+node_modules/
+dist/
+dist-electron/
+out/
+build/
+.vite/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local state (per CLAUDE.md §3)
+data/
+apps/backend/logs/
+.env
+.env.local
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
