@@ -8,6 +8,7 @@ import type {
   Idea,
   IdeaDecision,
   IdeaStatus,
+  JobDetail,
   JobEvent,
   JobSummary,
   LiveEvent,
@@ -26,6 +27,8 @@ const api: ManageApi = {
   cancelJob: (jobId: string): Promise<void> =>
     ipcRenderer.invoke("jobs:cancel", jobId),
   listJobs: (): Promise<JobSummary[]> => ipcRenderer.invoke("jobs:list"),
+  getJob: (jobId: string): Promise<JobDetail> =>
+    ipcRenderer.invoke("jobs:get", jobId),
   listArtifacts: (jobId: string): Promise<ArtifactRow[]> =>
     ipcRenderer.invoke("jobs:listArtifacts", jobId),
   onJobEvent: (cb: (jobId: string, event: JobEvent) => void) => {

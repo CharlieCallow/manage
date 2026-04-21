@@ -4,7 +4,7 @@
 
 export type PersonaName = "buffett" | "druckenmiller" | "burry";
 export type AnalystName = "valuation" | "fundamentals";
-export type JobType = "research" | "committee" | "backtest";
+export type JobType = "research" | "committee" | "backtest" | "ideation";
 export type JobStatus =
   | "queued"
   | "running"
@@ -114,6 +114,18 @@ export interface JobSummary {
   persona: string | null;
 }
 
+export interface JobDetail {
+  id: string;
+  type: JobType;
+  status: JobStatus;
+  cost_usd: number;
+  budget_usd: number;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  inputs: Record<string, unknown>;
+}
+
 export interface ArtifactRow {
   id: number;
   job_id: string;
@@ -192,6 +204,7 @@ export interface ManageApi {
   createJob(args: CreateJobArgs): Promise<CreateJobResult>;
   cancelJob(jobId: string): Promise<void>;
   listJobs(): Promise<JobSummary[]>;
+  getJob(jobId: string): Promise<JobDetail>;
   listArtifacts(jobId: string): Promise<ArtifactRow[]>;
   onJobEvent(cb: (jobId: string, event: JobEvent) => void): () => void;
   onLiveEvent(cb: (evt: LiveEvent) => void): () => void;

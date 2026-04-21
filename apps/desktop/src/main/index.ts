@@ -11,6 +11,7 @@ import type {
   Idea,
   IdeaDecision,
   IdeaStatus,
+  JobDetail,
   JobEvent,
   JobSummary,
   LiveEvent,
@@ -153,6 +154,15 @@ ipcMain.handle("jobs:list", async (): Promise<JobSummary[]> => {
   if (!res.ok) throw new Error(`list_jobs failed: ${res.status}`);
   return (await res.json()) as JobSummary[];
 });
+
+ipcMain.handle(
+  "jobs:get",
+  async (_evt, jobId: string): Promise<JobDetail> => {
+    const res = await fetch(`${HTTP_BASE}/jobs/${jobId}`);
+    if (!res.ok) throw new Error(`get_job failed: ${res.status}`);
+    return (await res.json()) as JobDetail;
+  },
+);
 
 ipcMain.handle(
   "jobs:listArtifacts",

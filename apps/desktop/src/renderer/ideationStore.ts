@@ -14,13 +14,14 @@ interface ActiveIdeation {
 interface IdeationState {
   active: ActiveIdeation | null;
   pending: Idea[];
+  history: Idea[];
   start(args: {
     framing?: string | undefined;
     numPerPersona: number;
     budgetUsd?: number | undefined;
   }): Promise<void>;
   apply(jobId: string, event: JobEvent): void;
-  refreshPending(): Promise<void>;
+  refresh(): Promise<void>;
   afterDecision(ideaId: number): void;
   reset(): void;
 }
@@ -40,6 +41,7 @@ function emptyActive(id: string, framing: string): ActiveIdeation {
 export const useIdeation = create<IdeationState>((set, get) => ({
   active: null,
   pending: [],
+  history: [],
 
   async start({ framing, numPerPersona, budgetUsd }) {
     if (get().active?.running) return;
@@ -90,13 +92,13 @@ export const useIdeation = create<IdeationState>((set, get) => ({
         };
         break;
       case "artifact":
-        // Candidates were persisted by the graph; pull the fresh list.
-        void get().refreshPending();
+        // Candidates were persisted by the graph; pull the fresh lists.
+        void get().refresh();
         break;
       case "job_done":
         next.costUsd = event.cost_usd;
         next.running = false;
-        void get().refreshPending();
+        void get().refresh();
         break;
       case "error":
         next.error = event.message;
@@ -109,17 +111,31 @@ export const useIdeation = create<IdeationState>((set, get) => ({
     set({ active: next });
   },
 
-  async refreshPending() {
+  async refresh() {
     try {
-      const pending = await window.api.listIdeas({ status: "pending" });
-      set({ pending });
+      const [pending, approved, dismissed] = await Promise.all([
+        window.api.listIdeas({ status: "pending" }),
+        window.api.listIdeas({ status: "approved" }),
+        window.api.listIdeas({ status: "dismissed" }),
+      ]);
+      const history = [...approved, ...dismissed].sort(
+        (a, b) => b.id - a.id,
+      );
+      set({ pending, history });
     } catch {
       // non-fatal
     }
   },
 
   afterDecision(ideaId) {
-    set({ pending: get().pending.filter((i) => i.id !== ideaId) });
+    const pending = get().pending;
+    const approved = pending.find((i) => i.id === ideaId);
+    set({
+      pending: pending.filter((i) => i.id !== ideaId),
+    });
+    // Re-fetch history so the moved card picks up its research_job_id.
+    void get().refresh();
+    void approved;
   },
 
   reset() {

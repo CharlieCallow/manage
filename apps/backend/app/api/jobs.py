@@ -38,6 +38,7 @@ from app.schemas.jobs import (
     CreateJobRequest,
     CreateJobResponse,
     IdeationInputs,
+    JobDetail,
     JobRow,
     JobSummary,
     ResearchInputs,
@@ -387,6 +388,33 @@ async def list_jobs(limit: int = 50) -> list[JobSummary]:
 async def list_job_artifacts(job_id: str) -> list[ArtifactRow]:
     rows = db.list_artifacts_for_job(job_id)
     return [ArtifactRow(**row) for row in rows]
+
+
+@router.get("/jobs/{job_id}", response_model=JobDetail)
+async def get_job(job_id: str) -> JobDetail:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, type, status, cost_usd, budget_usd, started_at, "
+            "finished_at, error, inputs_json FROM jobs WHERE id = ?",
+            (job_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"job {job_id} not found")
+    inputs: dict[str, Any] = {}
+    with contextlib.suppress(json.JSONDecodeError):
+        inputs = json.loads(row["inputs_json"] or "{}")
+    return JobDetail(
+        id=row["id"],
+        type=row["type"],
+        status=row["status"],
+        cost_usd=row["cost_usd"],
+        budget_usd=row["budget_usd"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        error=row["error"],
+        inputs=inputs,
+    )
 
 
 @router.websocket("/ws/jobs/{job_id}")

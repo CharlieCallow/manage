@@ -12,6 +12,7 @@ export type {
   IdeationInputs,
   CreateJobResult,
   DailySpend,
+  JobDetail,
   JobEvent,
   JobStatus,
   JobSummary,

@@ -113,3 +113,17 @@ class JobSummary(BaseModel):
     error: str | None = None
     ticker: str | None = None
     persona: str | None = None
+
+
+class JobDetail(BaseModel):
+    """Full record for the Archive detail pane."""
+
+    id: str
+    type: JobType
+    status: JobStatus
+    cost_usd: float
+    budget_usd: float
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
