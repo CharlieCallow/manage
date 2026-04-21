@@ -2,6 +2,7 @@ export type {
   AnalystName,
   ArtifactPayload,
   ArtifactRow,
+  BacktestInputs,
   CommitteeInputs,
   CreateJobArgs,
   CreateJobResult,

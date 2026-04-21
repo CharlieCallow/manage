@@ -25,12 +25,14 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from app.agents.base import AgentContext, BudgetTracker
+from app.agents.graphs.backtest import run_backtest
 from app.agents.graphs.committee import run_committee
 from app.agents.graphs.research import run_research
 from app.config import settings
 from app.schemas.events import ErrorEvent, JobDoneEvent, JobEvent, StatusEvent
 from app.schemas.jobs import (
     ArtifactRow,
+    BacktestInputs,
     CommitteeInputs,
     CreateJobRequest,
     CreateJobResponse,
@@ -232,6 +234,10 @@ async def _run_job(job_id: str, req: CreateJobRequest) -> None:
                 stream = run_committee(
                     job, CommitteeInputs.model_validate(req.inputs), ctx
                 )
+            elif req.type == "backtest":
+                stream = run_backtest(
+                    job, BacktestInputs.model_validate(req.inputs), ctx
+                )
             else:
                 raise HTTPException(
                     status_code=400,
@@ -294,6 +300,8 @@ async def create_job(req: CreateJobRequest) -> CreateJobResponse:
             ResearchInputs.model_validate(req.inputs)
         elif req.type == "committee":
             CommitteeInputs.model_validate(req.inputs)
+        elif req.type == "backtest":
+            BacktestInputs.model_validate(req.inputs)
         else:
             raise HTTPException(
                 status_code=400, detail=f"job type not implemented: {req.type}"

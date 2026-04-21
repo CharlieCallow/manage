@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
-import { ResearchDesk } from "./rooms/ResearchDesk.js";
 import { CommitteeRoom } from "./rooms/CommitteeRoom.js";
 import { Office } from "./rooms/Office.js";
+import { ResearchDesk } from "./rooms/ResearchDesk.js";
 import { Roster } from "./rooms/Roster.js";
+import { TimeMachine } from "./rooms/TimeMachine.js";
 import { TradingFloor } from "./rooms/TradingFloor.js";
 import { useLive } from "./liveStore.js";
 
-type Room = "office" | "research" | "committee" | "floor" | "roster";
+type Room =
+  | "office"
+  | "research"
+  | "committee"
+  | "floor"
+  | "time"
+  | "roster";
 
 const ROOMS: { id: Room; label: string }[] = [
   { id: "office", label: "Office" },
   { id: "research", label: "Research Desk" },
   { id: "committee", label: "Committee Room" },
   { id: "floor", label: "Trading Floor" },
+  { id: "time", label: "Time Machine" },
   { id: "roster", label: "Roster" },
 ];
 
@@ -48,13 +56,14 @@ export function App(): JSX.Element {
             ))}
           </nav>
         </div>
-        <span className="text-xs text-neutral-500">Phase 4</span>
+        <span className="text-xs text-neutral-500">Phase 5</span>
       </header>
 
       {room === "office" && <Office />}
       {room === "research" && <ResearchDesk />}
       {room === "committee" && <CommitteeRoom />}
       {room === "floor" && <TradingFloor />}
+      {room === "time" && <TimeMachine />}
       {room === "roster" && <Roster />}
     </div>
   );

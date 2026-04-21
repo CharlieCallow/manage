@@ -12,11 +12,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 ## 2. Current phase
 
-**Phase 4 — Office + Trading Floor.** Update this line on every phase boundary.
+**Phase 5 — Time Machine.** Update this line on every phase boundary.
 
-Phase 4 is done when: the Office room shows a live daily-spend widget (fed by the `api_calls` table) and a portfolio table with add/update/delete, and the Trading Floor renders a desk grid that lights up in real time as any agent streams tokens on any job (driven by a new `/ws/live` broadcast channel).
+Phase 5 is done when: the Time Machine room runs a backtest job over a configurable persona + ticker + start date window, each step scores a BUY/HOLD/PASS signal on an as-of price snapshot (Haiku, per §8), forward returns are measured off that snapshot, a `backtest_report` artifact is emitted, and the `persona_performance` row keyed by `(persona_id, ticker)` is replaced with the latest hit rate and average return.
 
-Do not start Phase 5 work until Phase 4 runs end-to-end on a clean machine.
+All six rooms from §1 are now live: Office, Research Desk, Committee Room, Trading Floor, Time Machine, Roster. The phased plan is complete — this line reflects the shipped baseline going forward.
 
 ## 3. Repo layout
 

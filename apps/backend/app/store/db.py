@@ -290,6 +290,36 @@ def update_roster_row(table: str, name: str, fields: dict[str, Any]) -> bool:
         return cur.rowcount > 0
 
 
+def upsert_persona_performance(
+    persona_id: int,
+    period: str,
+    trades: int,
+    hit_rate: float | None,
+    avg_return: float | None,
+) -> int:
+    """Insert or replace a persona_performance row keyed by (persona_id, period)."""
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id FROM persona_performance WHERE persona_id = ? AND period = ?",
+            (persona_id, period),
+        )
+        row = cur.fetchone()
+        if row is None:
+            cur = conn.execute(
+                "INSERT INTO persona_performance "
+                "(persona_id, period, trades, hit_rate, avg_return) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (persona_id, period, trades, hit_rate, avg_return),
+            )
+            return int(cur.lastrowid or 0)
+        conn.execute(
+            "UPDATE persona_performance SET trades = ?, hit_rate = ?, avg_return = ? "
+            "WHERE id = ?",
+            (trades, hit_rate, avg_return, row["id"]),
+        )
+        return int(row["id"])
+
+
 def list_performance_for_persona(persona_id: int) -> list[dict[str, Any]]:
     with connection() as conn:
         cur = conn.execute(

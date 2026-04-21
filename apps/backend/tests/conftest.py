@@ -43,8 +43,9 @@ class FakeStream:
 class FakeMessages:
     """Returns a stream whose chunks depend on which agent is calling.
 
-    We key on the system prompt: every persona/analyst prompt file starts
-    with a distinctive first word, which lets tests assert per-agent output.
+    Keys match against the system prompt (agent identity). The backtest
+    scorer overrides on the user message: it instructs Haiku to emit the
+    structured `SIGNAL: ... / REASON: ...` form, so we special-case it.
     """
 
     def __init__(self, chunks_for: dict[str, list[str]]) -> None:
@@ -52,8 +53,15 @@ class FakeMessages:
 
     def stream(self, **kwargs: Any) -> Any:
         system = kwargs.get("system", "")
-        key = _match_key(system, self._by_key) or "default"
-        chunks = self._by_key.get(key, ["ok"])
+        messages = kwargs.get("messages") or []
+        user = messages[0]["content"] if messages else ""
+
+        if "SIGNAL: BUY|HOLD|PASS" in user:
+            # Backtest scorer call — respond in the required format.
+            chunks = ["SIGNAL: BUY\n", "REASON: positive momentum."]
+        else:
+            key = _match_key(system, self._by_key) or "default"
+            chunks = self._by_key.get(key, ["ok"])
 
         @asynccontextmanager
         async def cm() -> AsyncIterator[FakeStream]:
@@ -122,9 +130,29 @@ def patched_market_data(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             "market_cap": 1_000_000_000,
         }
 
+    async def fake_fetch_asof(ticker: str, as_of: Any) -> dict[str, Any]:
+        return {
+            "ticker": ticker,
+            "as_of": str(as_of),
+            "close": 100.0,
+            "return_52w": 0.12,
+            "return_4w": 0.02,
+            "high_52w": 110.0,
+            "low_52w": 85.0,
+        }
+
+    async def fake_forward_return(
+        ticker: str, from_date: Any, to_date: Any
+    ) -> float | None:
+        # Alternate outcomes so BUY signals have a non-trivial hit rate in tests.
+        days = (to_date - from_date).days
+        return 0.01 * days  # 1% per day of window
+
     from app.tools import market_data
 
     monkeypatch.setattr(market_data, "fetch_snapshot", fake_fetch)
+    monkeypatch.setattr(market_data, "fetch_snapshot_asof", fake_fetch_asof)
+    monkeypatch.setattr(market_data, "fetch_forward_return", fake_forward_return)
     yield
 
 

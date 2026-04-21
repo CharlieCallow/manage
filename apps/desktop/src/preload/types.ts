@@ -24,9 +24,18 @@ export interface CommitteeInputs {
   personas?: PersonaName[] | undefined;
 }
 
+export interface BacktestInputs {
+  persona: PersonaName;
+  ticker: string;
+  start_date: string; // YYYY-MM-DD
+  num_steps: number;
+  step_weeks: number;
+}
+
 export type CreateJobArgs =
   | { type: "research"; inputs: ResearchInputs; budget_usd?: number | undefined }
-  | { type: "committee"; inputs: CommitteeInputs; budget_usd?: number | undefined };
+  | { type: "committee"; inputs: CommitteeInputs; budget_usd?: number | undefined }
+  | { type: "backtest"; inputs: BacktestInputs; budget_usd?: number | undefined };
 
 export interface CreateJobResult {
   jobId: string;

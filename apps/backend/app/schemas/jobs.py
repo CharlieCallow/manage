@@ -29,6 +29,23 @@ class CommitteeInputs(BaseModel):
     personas: list[str] | None = None
 
 
+class BacktestInputs(BaseModel):
+    """Backtest job inputs. CLAUDE.md §6, §8.
+
+    Runs a single persona across `num_steps` weekly windows starting at
+    `start_date`. Each step the persona (running on Haiku, per §8) emits a
+    signal on the as-of snapshot; the forward return is then measured.
+    """
+
+    persona: str = Field(min_length=1)
+    ticker: str = Field(min_length=1, max_length=10)
+    start_date: str = Field(
+        description="ISO date (YYYY-MM-DD) for the first step's as-of anchor"
+    )
+    num_steps: int = Field(default=12, ge=1, le=52)
+    step_weeks: int = Field(default=1, ge=1, le=8)
+
+
 class CreateJobRequest(BaseModel):
     """Boundary schema. `inputs` is a raw dict so each job type can validate
     into its own Pydantic model inside the runner."""
