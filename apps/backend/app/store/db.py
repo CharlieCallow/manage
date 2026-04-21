@@ -170,6 +170,58 @@ def list_artifacts_for_job(job_id: str) -> list[dict[str, Any]]:
         return [dict(row) for row in cur.fetchall()]
 
 
+def list_roster(table: str) -> list[dict[str, Any]]:
+    if table not in {"personas", "analysts"}:
+        raise ValueError(f"invalid roster table: {table}")
+    with connection() as conn:
+        cur = conn.execute(
+            f"SELECT id, name, prompt_template, model, enabled, created_at "  # noqa: S608
+            f"FROM {table} ORDER BY id"
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_roster_row(table: str, name: str) -> dict[str, Any] | None:
+    if table not in {"personas", "analysts"}:
+        raise ValueError(f"invalid roster table: {table}")
+    with connection() as conn:
+        cur = conn.execute(
+            f"SELECT id, name, prompt_template, model, enabled, created_at "  # noqa: S608
+            f"FROM {table} WHERE name = ?",
+            (name,),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+_ROSTER_UPDATABLE: frozenset[str] = frozenset({"prompt_template", "model", "enabled"})
+
+
+def update_roster_row(table: str, name: str, fields: dict[str, Any]) -> bool:
+    if table not in {"personas", "analysts"}:
+        raise ValueError(f"invalid roster table: {table}")
+    bad = set(fields) - _ROSTER_UPDATABLE
+    if bad:
+        raise ValueError(f"refusing to update unknown roster columns: {sorted(bad)}")
+    if not fields:
+        return True
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    sql = f"UPDATE {table} SET {cols} WHERE name = ?"  # noqa: S608
+    with connection() as conn:
+        cur = conn.execute(sql, (*fields.values(), name))
+        return cur.rowcount > 0
+
+
+def list_performance_for_persona(persona_id: int) -> list[dict[str, Any]]:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, persona_id, period, trades, hit_rate, avg_return "
+            "FROM persona_performance WHERE persona_id = ? ORDER BY period",
+            (persona_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
 def list_recent_jobs(limit: int = 50) -> list[dict[str, Any]]:
     with connection() as conn:
         cur = conn.execute(

@@ -6,6 +6,10 @@ import type {
   JobEvent,
   JobSummary,
   ManageApi,
+  PerformanceRow,
+  RosterKind,
+  RosterRow,
+  RosterUpdate,
 } from "./types.js";
 
 const api: ManageApi = {
@@ -24,6 +28,15 @@ const api: ManageApi = {
     ipcRenderer.on("job:event", listener);
     return () => ipcRenderer.removeListener("job:event", listener);
   },
+  listRoster: (kind: RosterKind): Promise<RosterRow[]> =>
+    ipcRenderer.invoke("roster:list", kind),
+  updateRosterMember: (
+    kind: RosterKind,
+    name: string,
+    body: RosterUpdate,
+  ): Promise<RosterRow> => ipcRenderer.invoke("roster:update", kind, name, body),
+  listPerformance: (personaName: string): Promise<PerformanceRow[]> =>
+    ipcRenderer.invoke("roster:performance", personaName),
 };
 
 contextBridge.exposeInMainWorld("api", api);

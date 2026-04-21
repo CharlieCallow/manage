@@ -8,6 +8,10 @@ import type {
   CreateJobResult,
   JobEvent,
   JobSummary,
+  PerformanceRow,
+  RosterKind,
+  RosterRow,
+  RosterUpdate,
 } from "../preload/types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -112,6 +116,47 @@ ipcMain.handle(
     const res = await fetch(`${HTTP_BASE}/jobs/${jobId}/artifacts`);
     if (!res.ok) throw new Error(`list_artifacts failed: ${res.status}`);
     return (await res.json()) as ArtifactRow[];
+  },
+);
+
+ipcMain.handle(
+  "roster:list",
+  async (_evt, kind: RosterKind): Promise<RosterRow[]> => {
+    const res = await fetch(`${HTTP_BASE}/${kind}`);
+    if (!res.ok) throw new Error(`roster list failed: ${res.status}`);
+    return (await res.json()) as RosterRow[];
+  },
+);
+
+ipcMain.handle(
+  "roster:update",
+  async (
+    _evt,
+    kind: RosterKind,
+    name: string,
+    body: RosterUpdate,
+  ): Promise<RosterRow> => {
+    const res = await fetch(`${HTTP_BASE}/${kind}/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`roster update failed: ${res.status} ${text}`);
+    }
+    return (await res.json()) as RosterRow;
+  },
+);
+
+ipcMain.handle(
+  "roster:performance",
+  async (_evt, personaName: string): Promise<PerformanceRow[]> => {
+    const res = await fetch(
+      `${HTTP_BASE}/personas/${encodeURIComponent(personaName)}/performance`,
+    );
+    if (!res.ok) throw new Error(`performance fetch failed: ${res.status}`);
+    return (await res.json()) as PerformanceRow[];
   },
 );
 

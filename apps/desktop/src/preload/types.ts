@@ -77,12 +77,49 @@ export interface ArtifactRow {
   created_at: string;
 }
 
+export type RosterKind = "personas" | "analysts";
+export type ModelId =
+  | "claude-opus-4-7"
+  | "claude-sonnet-4-6"
+  | "claude-haiku-4-5";
+
+export interface RosterRow {
+  id: number;
+  name: string;
+  prompt_template: string;
+  model: ModelId;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface RosterUpdate {
+  prompt_template?: string;
+  model?: ModelId;
+  enabled?: boolean;
+}
+
+export interface PerformanceRow {
+  id: number;
+  persona_id: number;
+  period: string;
+  trades: number;
+  hit_rate: number | null;
+  avg_return: number | null;
+}
+
 export interface ManageApi {
   createJob(args: CreateJobArgs): Promise<CreateJobResult>;
   cancelJob(jobId: string): Promise<void>;
   listJobs(): Promise<JobSummary[]>;
   listArtifacts(jobId: string): Promise<ArtifactRow[]>;
   onJobEvent(cb: (jobId: string, event: JobEvent) => void): () => void;
+  listRoster(kind: RosterKind): Promise<RosterRow[]>;
+  updateRosterMember(
+    kind: RosterKind,
+    name: string,
+    body: RosterUpdate,
+  ): Promise<RosterRow>;
+  listPerformance(personaName: string): Promise<PerformanceRow[]>;
 }
 
 declare global {

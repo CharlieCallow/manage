@@ -17,19 +17,24 @@ from app.agents.personas.druckenmiller import (
     default_prompt_template as druckenmiller_prompt,
 )
 from app.api.jobs import router as jobs_router
+from app.api.roster import router as roster_router
 from app.logging import configure_logging
 from app.store import db
 
 logger = logging.getLogger(__name__)
 
 
-# CLAUDE.md §8 — deep-thesis personas on Opus, analysts on Sonnet by default.
+# CLAUDE.md §8 — Sonnet is the default for personas and analysts. Users can
+# bump individual rows to Opus from the Roster room.
+_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
 def _seed_agents() -> None:
-    db.upsert_persona("buffett", buffett_prompt(), "claude-opus-4-7")
-    db.upsert_persona("druckenmiller", druckenmiller_prompt(), "claude-opus-4-7")
-    db.upsert_persona("burry", burry_prompt(), "claude-opus-4-7")
-    db.upsert_analyst("valuation", valuation_prompt(), "claude-sonnet-4-6")
-    db.upsert_analyst("fundamentals", fundamentals_prompt(), "claude-sonnet-4-6")
+    db.upsert_persona("buffett", buffett_prompt(), _DEFAULT_MODEL)
+    db.upsert_persona("druckenmiller", druckenmiller_prompt(), _DEFAULT_MODEL)
+    db.upsert_persona("burry", burry_prompt(), _DEFAULT_MODEL)
+    db.upsert_analyst("valuation", valuation_prompt(), _DEFAULT_MODEL)
+    db.upsert_analyst("fundamentals", fundamentals_prompt(), _DEFAULT_MODEL)
 
 
 @asynccontextmanager
@@ -43,6 +48,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="manage backend", version="0.0.0", lifespan=lifespan)
 app.include_router(jobs_router)
+app.include_router(roster_router)
 
 
 @app.get("/health")

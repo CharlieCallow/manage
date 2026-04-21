@@ -12,11 +12,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 ## 2. Current phase
 
-**Phase 1 — Research Desk (slice).** Update this line on every phase boundary.
+**Phase 2 — Roster.** Update this line on every phase boundary.
 
-Phase 1 is done when: the Research Desk can take a ticker + one of three personas (Buffett, Druckenmiller, Burry), fan out to two analysts (valuation, fundamentals) in parallel, and produce a readable NVDA memo artifact — all driven through the job queue, with per-agent streaming visible in the UI.
+Phase 2 is done when: the Roster room lists every persona and analyst, each row's prompt template and model are editable and persist across restarts, and the persona detail view includes a performance table (rendering empty is fine — the rows arrive in Phase 5).
 
-Do not start Phase 2 work until Phase 1 runs end-to-end on a clean machine.
+Do not start Phase 3 work until Phase 2 runs end-to-end on a clean machine.
 
 ## 3. Repo layout
 
@@ -115,8 +115,8 @@ Renderer demultiplexes by `agent`. The Committee Room uses this to render each p
 
 Use the Anthropic SDK (`anthropic.AsyncAnthropic`). Config in `apps/backend/app/config.py`.
 
-- `claude-opus-4-7` — PM, deep-thesis personas (Buffett, Druckenmiller, Burry). Used sparingly.
-- `claude-sonnet-4-6` — Default for personas and analysts. 80%+ of calls.
+- `claude-opus-4-7` — PM, committee synthesis, and any persona a user explicitly upgrades for deeper thesis work. Used sparingly; never the default.
+- `claude-sonnet-4-6` — Default for all personas and analysts. 80%+ of calls.
 - `claude-haiku-4-5` — Sentiment, hot-loop calls inside the backtester, moderator routing.
 
 Per-persona model is stored in `personas.model` and overridable from the Roster UI. **Never hard-code a model inside an agent file** — always read from the persona row.

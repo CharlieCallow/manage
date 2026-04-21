@@ -9,6 +9,11 @@ export type {
   JobSummary,
   JobType,
   ManageApi,
+  ModelId,
+  PerformanceRow,
   PersonaName,
   ResearchInputs,
+  RosterKind,
+  RosterRow,
+  RosterUpdate,
 } from "../preload/types.js";
