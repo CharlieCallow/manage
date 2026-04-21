@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.agents.base import AgentContext, LLMAgent
 from app.agents.registry import load_analyst, load_persona
@@ -28,12 +30,18 @@ from app.tools import market_data
 # per-persona configurable.
 DEFAULT_ANALYSTS = ("valuation", "fundamentals")
 
+_RATING_RE = re.compile(
+    r"\*\*Rating:\*\*\s*([A-Z][A-Z ]+)",
+)
+_TARGET_RE_TEMPLATE = r"\*\*{label} target:\*\*\s*\$?([\-0-9.,]+)"
+
 
 async def run_research(
     job: JobRow, inputs: ResearchInputs, ctx: AgentContext
 ) -> AsyncIterator[JobEvent]:
     ctx.ticker = inputs.ticker
     ctx.user_prompt = inputs.prompt
+    ctx.style = inputs.style
 
     # 1. Snapshot
     yield StatusEvent(agent="graph", status="fetching_market_data")
@@ -60,20 +68,22 @@ async def run_research(
             memo_chunks.append(event.text)
         yield event
 
-    # 4. Memo artifact
+    # 4. Memo artifact (with parsed rating + targets)
     memo_md = "".join(memo_chunks).strip()
     if memo_md:
+        meta = _parse_memo_meta(memo_md)
+        content_json: dict[str, Any] = {
+            "ticker": inputs.ticker,
+            "persona": inputs.persona,
+            "style": inputs.style,
+            "analyst_outputs": ctx.analyst_outputs,
+            **meta,
+        }
         artifact_id = db.insert_artifact(
             job_id=job.id,
             kind="memo",
             content_md=memo_md,
-            content_json=json.dumps(
-                {
-                    "ticker": inputs.ticker,
-                    "persona": inputs.persona,
-                    "analyst_outputs": ctx.analyst_outputs,
-                }
-            ),
+            content_json=json.dumps(content_json),
         )
         yield ArtifactEvent(
             artifact=ArtifactPayload(
@@ -81,9 +91,33 @@ async def run_research(
                 job_id=job.id,
                 kind="memo",
                 content_md=memo_md,
-                content_json=None,
+                content_json=content_json,
             )
         )
+
+
+def _parse_memo_meta(memo_md: str) -> dict[str, Any]:
+    """Pull rating + bull/base/bear targets out of the memo header."""
+    rating_match = _RATING_RE.search(memo_md)
+    rating = rating_match.group(1).strip() if rating_match else None
+
+    def target(label: str) -> float | None:
+        match = re.search(_TARGET_RE_TEMPLATE.format(label=label), memo_md)
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(",", ""))
+        except ValueError:
+            return None
+
+    return {
+        "rating": rating,
+        "targets": {
+            "bull": target("Bull"),
+            "base": target("Base"),
+            "bear": target("Bear"),
+        },
+    }
 
 
 async def _run_parallel(

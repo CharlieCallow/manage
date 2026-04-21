@@ -49,6 +49,7 @@ class AgentContext:
     transcript: list[TranscriptTurn] = field(default_factory=list)
     user_prompt: str | None = None
     ticker: str | None = None
+    style: str = "classic"
 
 
 @runtime_checkable

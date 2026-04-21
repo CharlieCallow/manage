@@ -23,6 +23,7 @@ export type {
   PerformanceRow,
   PersonaName,
   PortfolioPosition,
+  ReportStyle,
   ResearchInputs,
   RosterKind,
   RosterRow,

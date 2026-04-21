@@ -101,6 +101,20 @@ _IDEATION_CHUNKS: dict[str, list[str]] = {
 }
 
 
+def _memo(persona: str, flavor: str) -> list[str]:
+    """Return a fake sell-side memo chunked for streaming."""
+    return [
+        f"# {persona} · KO — Initiation\n\n",
+        "**Rating:** BUY\n",
+        "**Base target:** $75.00\n",
+        "**Bull target:** $90.00\n",
+        "**Bear target:** $55.00\n",
+        "**Horizon:** 12 months\n\n",
+        "## Executive summary\n",
+        f"Memo body — {flavor}.\n",
+    ]
+
+
 class FakeAnthropic:
     """Keys are substrings that must be distinctive across all agent prompts.
 
@@ -111,9 +125,9 @@ class FakeAnthropic:
 
     def __init__(self, chunks_for: dict[str, list[str]] | None = None, **_: Any) -> None:
         defaults = {
-            "mold of Warren Buffett": ["# Memo\n", "Buy KO. "],
-            "mold of Stanley Druckenmiller": ["Macro call. "],
-            "mold of Michael": ["Read footnotes. "],
+            "mold of Warren Buffett": _memo("Buffett", "durable moat"),
+            "mold of Stanley Druckenmiller": _memo("Druckenmiller", "momentum setup"),
+            "mold of Michael": _memo("Burry", "contrarian read"),
             "You are a valuation analyst": ["Valuation: expensive. "],
             "You are a fundamentals analyst": ["Fundamentals: high quality. "],
             "You are the moderator": ["Committee now in session. "],

@@ -23,4 +23,5 @@ class BuffettAgent(LLMAgent):
             snapshot=ctx.snapshot,
             analyst_outputs=ctx.analyst_outputs,
             user_prompt=ctx.user_prompt,
+            style=ctx.style,
         )

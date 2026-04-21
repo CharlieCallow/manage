@@ -49,8 +49,17 @@ def test_research_streams_parallel_analysts_then_memo(client: TestClient) -> Non
 
         artifacts = [e for e in events if e["type"] == "artifact"]
         assert len(artifacts) == 1
-        assert artifacts[0]["artifact"]["kind"] == "memo"
-        assert "Memo" in artifacts[0]["artifact"]["content_md"]
+        artifact = artifacts[0]["artifact"]
+        assert artifact["kind"] == "memo"
+        # Sell-side structure (Step 2).
+        assert "Initiation" in artifact["content_md"]
+        assert "**Rating:**" in artifact["content_md"]
+        meta = artifact["content_json"]
+        assert meta["rating"] == "BUY"
+        assert meta["targets"]["base"] == 75.0
+        assert meta["targets"]["bull"] == 90.0
+        assert meta["targets"]["bear"] == 55.0
+        assert meta["style"] == "classic"
 
         resp = client.get(f"/jobs/{job_id}/artifacts")
         assert resp.status_code == 200

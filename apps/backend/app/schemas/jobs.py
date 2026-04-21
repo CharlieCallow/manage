@@ -7,14 +7,22 @@ from pydantic import BaseModel, Field
 
 JobType = Literal["research", "committee", "backtest", "ideation"]
 JobStatus = Literal["queued", "running", "done", "error", "budget_exceeded"]
+ReportStyle = Literal["classic", "citrini"]
 
 
 class ResearchInputs(BaseModel):
-    """Research job inputs: persona + ticker, plus optional user framing."""
+    """Research job inputs: persona + ticker, plus optional user framing.
+
+    `style` picks the memo format. `classic` is the full sell-side report
+    (rating, bull/base/bear targets, exec summary, thesis pillars, business,
+    valuation triangulation, risks). `citrini` is a thematic long/short
+    write-up — falls back to classic until Step 3 lands.
+    """
 
     persona: str = Field(min_length=1)
     ticker: str = Field(min_length=1, max_length=10)
     prompt: str | None = None
+    style: ReportStyle = "classic"
 
 
 class CommitteeInputs(BaseModel):

@@ -12,10 +12,13 @@ export type JobStatus =
   | "error"
   | "budget_exceeded";
 
+export type ReportStyle = "classic" | "citrini";
+
 export interface ResearchInputs {
   persona: PersonaName;
   ticker: string;
   prompt?: string | undefined;
+  style?: ReportStyle | undefined;
 }
 
 export interface CommitteeInputs {

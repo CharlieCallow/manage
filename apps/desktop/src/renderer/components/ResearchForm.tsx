@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PersonaName } from "../types.js";
+import type { PersonaName, ReportStyle } from "../types.js";
 import { useResearch } from "../store.js";
 
 const PERSONAS: { id: PersonaName; label: string; tagline: string }[] = [
@@ -8,16 +8,35 @@ const PERSONAS: { id: PersonaName; label: string; tagline: string }[] = [
   { id: "burry", label: "Burry", tagline: "balance sheet, contrarian" },
 ];
 
+const STYLES: { id: ReportStyle; label: string; tagline: string }[] = [
+  {
+    id: "classic",
+    label: "Classic",
+    tagline: "sell-side initiation — rating, bull/base/bear, valuation",
+  },
+  {
+    id: "citrini",
+    label: "Citrini",
+    tagline: "thematic narrative — coming in Step 3",
+  },
+];
+
 export function ResearchForm(): JSX.Element {
   const [ticker, setTicker] = useState("NVDA");
   const [persona, setPersona] = useState<PersonaName>("buffett");
+  const [style, setStyle] = useState<ReportStyle>("classic");
   const [prompt, setPrompt] = useState("");
   const running = useResearch((s) => s.active?.running ?? false);
   const start = useResearch((s) => s.start);
 
   function submit(e: React.FormEvent): void {
     e.preventDefault();
-    void start({ persona, ticker, prompt: prompt.trim() || undefined });
+    void start({
+      persona,
+      ticker,
+      style,
+      prompt: prompt.trim() || undefined,
+    });
   }
 
   return (
@@ -52,6 +71,28 @@ export function ResearchForm(): JSX.Element {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-neutral-400 block mb-1">
+          Report style
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {STYLES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setStyle(s.id)}
+              className={`text-left px-3 py-2 rounded border text-sm ${
+                style === s.id
+                  ? "border-emerald-600 bg-emerald-600/10 text-emerald-200"
+                  : "border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-neutral-700"
+              }`}
+            >
+              <div className="font-medium">{s.label}</div>
+              <div className="text-xs text-neutral-500">{s.tagline}</div>
+            </button>
+          ))}
         </div>
       </div>
       <div>

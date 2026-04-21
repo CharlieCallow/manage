@@ -6,12 +6,15 @@ import type {
   PersonaName,
 } from "./types.js";
 
+export type ReportStyle = "classic" | "citrini";
+
 type AgentName = string;
 
 interface ActiveJob {
   id: string;
   ticker: string;
   persona: PersonaName;
+  style: ReportStyle;
   tokensByAgent: Record<AgentName, string>;
   statusByAgent: Record<AgentName, string>;
   artifacts: ArtifactPayload[];
@@ -26,6 +29,7 @@ interface ResearchState {
   start(args: {
     persona: PersonaName;
     ticker: string;
+    style?: ReportStyle | undefined;
     prompt?: string | undefined;
     budgetUsd?: number | undefined;
   }): Promise<void>;
@@ -38,11 +42,13 @@ function emptyActive(
   id: string,
   ticker: string,
   persona: PersonaName,
+  style: ReportStyle,
 ): ActiveJob {
   return {
     id,
     ticker,
     persona,
+    style,
     tokensByAgent: {},
     statusByAgent: {},
     artifacts: [],
@@ -56,17 +62,19 @@ export const useResearch = create<ResearchState>((set, get) => ({
   active: null,
   jobs: [],
 
-  async start({ persona, ticker, prompt, budgetUsd }) {
+  async start({ persona, ticker, style, prompt, budgetUsd }) {
     const cleanTicker = ticker.trim().toUpperCase();
     if (!cleanTicker) return;
     if (get().active?.running) return;
+    const resolvedStyle: ReportStyle = style ?? "classic";
 
     try {
       const inputs: {
         persona: PersonaName;
         ticker: string;
+        style: ReportStyle;
         prompt?: string;
-      } = { persona, ticker: cleanTicker };
+      } = { persona, ticker: cleanTicker, style: resolvedStyle };
       if (prompt) inputs.prompt = prompt;
       const args: {
         type: "research";
@@ -75,7 +83,7 @@ export const useResearch = create<ResearchState>((set, get) => ({
       } = { type: "research", inputs };
       if (budgetUsd !== undefined) args.budget_usd = budgetUsd;
       const { jobId } = await window.api.createJob(args);
-      set({ active: emptyActive(jobId, cleanTicker, persona) });
+      set({ active: emptyActive(jobId, cleanTicker, persona, resolvedStyle) });
       void get().loadJobs();
     } catch (err) {
       set({
@@ -83,6 +91,7 @@ export const useResearch = create<ResearchState>((set, get) => ({
           id: "",
           ticker: cleanTicker,
           persona,
+          style: resolvedStyle,
           tokensByAgent: {},
           statusByAgent: {},
           artifacts: [],
