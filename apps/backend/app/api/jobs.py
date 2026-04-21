@@ -25,11 +25,13 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from app.agents.base import AgentContext, BudgetTracker
+from app.agents.graphs.committee import run_committee
 from app.agents.graphs.research import run_research
 from app.config import settings
 from app.schemas.events import ErrorEvent, JobDoneEvent, JobEvent, StatusEvent
 from app.schemas.jobs import (
     ArtifactRow,
+    CommitteeInputs,
     CreateJobRequest,
     CreateJobResponse,
     JobRow,
@@ -200,12 +202,17 @@ async def _run_job(job_id: str, req: CreateJobRequest) -> None:
             )
 
             if req.type == "research":
-                assert isinstance(req.inputs, ResearchInputs)
-                stream = run_research(job, req.inputs, ctx)
+                stream = run_research(
+                    job, ResearchInputs.model_validate(req.inputs), ctx
+                )
+            elif req.type == "committee":
+                stream = run_committee(
+                    job, CommitteeInputs.model_validate(req.inputs), ctx
+                )
             else:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"job type not implemented in Phase 1: {req.type}",
+                    detail=f"job type not implemented: {req.type}",
                 )
 
             async for event in stream:
@@ -239,6 +246,9 @@ async def _run_job(job_id: str, req: CreateJobRequest) -> None:
             error=str(exc),
         )
         await _emit(job_id, ErrorEvent(message=str(exc)))
+        # job_done always closes the stream — error path included — so the
+        # renderer has a single terminating signal.
+        await _emit(job_id, JobDoneEvent(cost_usd=spent))
     finally:
         await _finalize(job_id)
 
@@ -254,6 +264,20 @@ def _now() -> str:
 
 @router.post("/jobs", response_model=CreateJobResponse)
 async def create_job(req: CreateJobRequest) -> CreateJobResponse:
+    # Validate inputs synchronously so malformed requests get 422 instead of
+    # surfacing as an ErrorEvent on the WebSocket.
+    try:
+        if req.type == "research":
+            ResearchInputs.model_validate(req.inputs)
+        elif req.type == "committee":
+            CommitteeInputs.model_validate(req.inputs)
+        else:
+            raise HTTPException(
+                status_code=400, detail=f"job type not implemented: {req.type}"
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     budget = (
         req.budget_usd
         if req.budget_usd is not None
@@ -283,7 +307,7 @@ async def create_job(req: CreateJobRequest) -> CreateJobResponse:
             (
                 job_id,
                 req.type,
-                req.inputs.model_dump_json(),
+                json.dumps(req.inputs),
                 "queued",
                 budget,
             ),

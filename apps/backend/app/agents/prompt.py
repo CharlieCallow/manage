@@ -57,3 +57,71 @@ def analyst_user_message(
         "actually needs. If the data is missing, say so rather than inventing\n"
         "numbers."
     )
+
+
+def format_transcript(turns: list[tuple[str, str]]) -> str:
+    if not turns:
+        return "(no turns yet)"
+    return "\n\n".join(f"## {role}\n{text.strip()}" for role, text in turns)
+
+
+def moderator_user_message(
+    ticker: str,
+    snapshot: dict[str, Any] | None,
+    user_prompt: str | None,
+) -> str:
+    framing = (user_prompt or "").strip()
+    return (
+        f"Ticker: {ticker}\n\n"
+        f"Market snapshot:\n{format_snapshot(snapshot)}\n\n"
+        f"User framing: {framing or '(none)'}\n\n"
+        "Open the committee meeting."
+    )
+
+
+def committee_persona_user_message(
+    ticker: str,
+    snapshot: dict[str, Any] | None,
+    turns: list[tuple[str, str]],
+    user_prompt: str | None,
+) -> str:
+    framing = (user_prompt or "").strip()
+    return (
+        f"Committee meeting on {ticker}.\n\n"
+        f"Market snapshot:\n{format_snapshot(snapshot)}\n\n"
+        f"User framing: {framing or '(none)'}\n\n"
+        f"Transcript so far:\n{format_transcript(turns)}\n\n"
+        "It is your turn. Respond as yourself in 120–180 words. Engage with\n"
+        "the prior speakers' arguments where it sharpens your own. Do not\n"
+        "restate the snapshot. Paraphrase; do not put direct quotes in the\n"
+        "real investor's mouth."
+    )
+
+
+def risk_user_message(
+    ticker: str,
+    snapshot: dict[str, Any] | None,
+    turns: list[tuple[str, str]],
+) -> str:
+    return (
+        f"Committee meeting on {ticker}.\n\n"
+        f"Market snapshot:\n{format_snapshot(snapshot)}\n\n"
+        f"Transcript so far:\n{format_transcript(turns)}\n\n"
+        "You are the risk officer. Interject."
+    )
+
+
+def pm_user_message(
+    ticker: str,
+    snapshot: dict[str, Any] | None,
+    turns: list[tuple[str, str]],
+    user_prompt: str | None,
+) -> str:
+    framing = (user_prompt or "").strip()
+    return (
+        f"Committee meeting on {ticker}.\n\n"
+        f"Market snapshot:\n{format_snapshot(snapshot)}\n\n"
+        f"User framing: {framing or '(none)'}\n\n"
+        f"Transcript:\n{format_transcript(turns)}\n\n"
+        "You are the PM. Close the meeting."
+    )

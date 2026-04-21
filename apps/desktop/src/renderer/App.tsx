@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { ResearchDesk } from "./rooms/ResearchDesk.js";
+import { CommitteeRoom } from "./rooms/CommitteeRoom.js";
 import { Roster } from "./rooms/Roster.js";
 
-type Room = "research" | "roster";
+type Room = "research" | "committee" | "roster";
 
 const ROOMS: { id: Room; label: string }[] = [
   { id: "research", label: "Research Desk" },
+  { id: "committee", label: "Committee Room" },
   { id: "roster", label: "Roster" },
 ];
 
@@ -34,10 +36,12 @@ export function App(): JSX.Element {
             ))}
           </nav>
         </div>
-        <span className="text-xs text-neutral-500">Phase 2</span>
+        <span className="text-xs text-neutral-500">Phase 3</span>
       </header>
 
-      {room === "research" ? <ResearchDesk /> : <Roster />}
+      {room === "research" && <ResearchDesk />}
+      {room === "committee" && <CommitteeRoom />}
+      {room === "roster" && <Roster />}
     </div>
   );
 }

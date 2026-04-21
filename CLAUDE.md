@@ -12,11 +12,11 @@ This is an analytical / educational tool. It does not execute trades. See §14.
 
 ## 2. Current phase
 
-**Phase 2 — Roster.** Update this line on every phase boundary.
+**Phase 3 — Committee Room.** Update this line on every phase boundary.
 
-Phase 2 is done when: the Roster room lists every persona and analyst, each row's prompt template and model are editable and persist across restarts, and the persona detail view includes a performance table (rendering empty is fine — the rows arrive in Phase 5).
+Phase 3 is done when: a committee job takes a ticker, runs moderator → buffett → druckenmiller → burry → risk → pm in order with each speaker streaming tokens under its own agent name, and produces a transcript artifact that carries the PM's final verdict.
 
-Do not start Phase 3 work until Phase 2 runs end-to-end on a clean machine.
+Do not start Phase 4 work until Phase 3 runs end-to-end on a clean machine.
 
 ## 3. Repo layout
 
@@ -57,7 +57,7 @@ Never commit `data/fund.sqlite`, `.env`, or anything under `apps/backend/logs/`.
 All tables live in `fund.sqlite`. Schema in `apps/backend/migrations/001_init.sql`.
 
 - `personas` — id, name, prompt_template, model, enabled, config_json, created_at
-- `analysts` — same shape as personas. Seeded: valuation, sentiment, fundamentals, technicals, risk, pm
+- `analysts` — same shape as personas. Houses research analysts and committee system roles. Seeded: valuation, sentiment, fundamentals, technicals, risk, pm, moderator
 - `jobs` — id, type (research|committee|backtest), inputs_json, status, cost_usd, started_at, finished_at, error
 - `artifacts` — id, job_id, kind (memo|transcript|signal|dcf|backtest_report), content_md, content_json, created_at
 - `portfolio` — id, ticker, qty, avg_price, updated_at

@@ -15,14 +15,18 @@ export type JobStatus =
 export interface ResearchInputs {
   persona: PersonaName;
   ticker: string;
-  prompt?: string;
+  prompt?: string | undefined;
 }
 
-export interface CreateJobArgs {
-  type: JobType;
-  inputs: ResearchInputs;
-  budget_usd?: number;
+export interface CommitteeInputs {
+  ticker: string;
+  prompt?: string | undefined;
+  personas?: PersonaName[] | undefined;
 }
+
+export type CreateJobArgs =
+  | { type: "research"; inputs: ResearchInputs; budget_usd?: number | undefined }
+  | { type: "committee"; inputs: CommitteeInputs; budget_usd?: number | undefined };
 
 export interface CreateJobResult {
   jobId: string;

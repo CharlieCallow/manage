@@ -6,7 +6,7 @@ Analytical / educational tool only. Executes no trades. See `CLAUDE.md` §14.
 
 ## Status
 
-**Phase 1 — Research Desk (slice).** Ticker + one of three personas (Buffett, Druckenmiller, Burry) → two analysts in parallel → memo artifact. See `CLAUDE.md` §12 for the phased plan.
+**Phase 3 — Committee Room.** Research Desk (persona + analyst stack → memo), Roster CRUD, and now a Committee Room (moderator → personas → risk → PM with a transcript + verdict). See `CLAUDE.md` §12 for the phased plan.
 
 ## Quickstart
 

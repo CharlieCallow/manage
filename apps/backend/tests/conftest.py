@@ -70,13 +70,28 @@ def _match_key(system: str, mapping: dict[str, list[str]]) -> str | None:
 
 
 class FakeAnthropic:
+    """Keys are substrings that must be distinctive across all agent prompts.
+
+    Prompts may mention other roles by name (e.g. pm.md references the risk
+    officer), so don't use role names as keys — use the opening "You are"
+    line each prompt begins with.
+    """
+
     def __init__(self, chunks_for: dict[str, list[str]] | None = None, **_: Any) -> None:
         defaults = {
-            "Buffett": ["# Memo\n", "Buy KO. "],
-            "Druckenmiller": ["# Memo\n", "Macro call. "],
-            "Burry": ["# Memo\n", "Read footnotes. "],
-            "valuation analyst": ["Valuation: expensive. "],
-            "fundamentals analyst": ["Fundamentals: high quality. "],
+            "mold of Warren Buffett": ["# Memo\n", "Buy KO. "],
+            "mold of Stanley Druckenmiller": ["Macro call. "],
+            "mold of Michael": ["Read footnotes. "],
+            "You are a valuation analyst": ["Valuation: expensive. "],
+            "You are a fundamentals analyst": ["Fundamentals: high quality. "],
+            "You are the moderator": ["Committee now in session. "],
+            "You are the risk officer on an investment committee":
+                ["Risks: concentration. "],
+            "You are the portfolio manager": [
+                "Thesis.\n",
+                "Decision: buy (half). ",
+                "Watch next quarter's FCF.",
+            ],
         }
         self.messages = FakeMessages(chunks_for=chunks_for or defaults)
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.agents.analysts.fundamentals import FundamentalsAnalyst
+from app.agents.analysts.moderator import ModeratorAgent
+from app.agents.analysts.pm import PMAnalyst
+from app.agents.analysts.risk import RiskAnalyst
 from app.agents.analysts.valuation import ValuationAnalyst
 from app.agents.base import LLMAgent
 from app.agents.personas.buffett import BuffettAgent
@@ -20,9 +23,15 @@ PERSONA_FACTORIES: dict[str, _PersonaFactory] = {
     "burry": BurryAgent,
 }
 
+# Analyst rows in the DB span both research analysts (valuation/fundamentals)
+# and system roles for the committee graph (moderator/risk/pm). They all
+# satisfy LLMAgent and share the roster schema per §5.
 ANALYST_FACTORIES: dict[str, _AnalystFactory] = {
     "valuation": ValuationAnalyst,
     "fundamentals": FundamentalsAnalyst,
+    "moderator": ModeratorAgent,
+    "risk": RiskAnalyst,
+    "pm": PMAnalyst,
 }
 
 

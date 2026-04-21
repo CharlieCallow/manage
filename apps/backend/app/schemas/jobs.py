@@ -1,7 +1,7 @@
 """Job inputs/outputs. CLAUDE.md §5 and §13."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,9 +17,24 @@ class ResearchInputs(BaseModel):
     prompt: str | None = None
 
 
+class CommitteeInputs(BaseModel):
+    """Committee job inputs: ticker and optional user framing.
+
+    Phase 3 always includes all three personas in the debate. Phase 4+ may
+    surface a subset selector; for now keep the UI simple.
+    """
+
+    ticker: str = Field(min_length=1, max_length=10)
+    prompt: str | None = None
+    personas: list[str] | None = None
+
+
 class CreateJobRequest(BaseModel):
+    """Boundary schema. `inputs` is a raw dict so each job type can validate
+    into its own Pydantic model inside the runner."""
+
     type: JobType
-    inputs: ResearchInputs
+    inputs: dict[str, Any]
     budget_usd: float | None = None
 
 
