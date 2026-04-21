@@ -1,8 +1,10 @@
 """Market data tool.
 
 CLAUDE.md §4 — abstract financial-datasets.ai + yfinance behind this module;
-agents must never call either library directly. Phase 1 ships a yfinance
-backend only; the financial-datasets.ai path lands in a later phase.
+agents must never call either library directly. When
+`FINANCIAL_DATASETS_API_KEY` is set the orchestrator prefers fd.ai for both
+prices and (crucially) point-in-time fundamentals, and falls back to
+yfinance for prices when fd.ai is disabled or errors.
 
 CLAUDE.md §13 — "Stub in tests — never hit a live market data provider in
 tests." Tests monkey-patch `fetch_snapshot` / `fetch_snapshot_asof` /
@@ -14,6 +16,8 @@ import asyncio
 import logging
 from datetime import date, timedelta
 from typing import Any
+
+from app.tools import financial_datasets as fd
 
 logger = logging.getLogger(__name__)
 
@@ -30,47 +34,98 @@ async def fetch_snapshot(ticker: str) -> dict[str, Any]:
         raw = await asyncio.to_thread(_yfinance_snapshot, ticker)
     except Exception as exc:  # never let data failures kill a job
         logger.warning("market_data fetch failed for %s: %s", ticker, exc)
-        return {"ticker": ticker, "error": f"snapshot unavailable: {exc}"}
+        raw = {"ticker": ticker, "error": f"snapshot unavailable: {exc}"}
+
+    fundamentals = await fd.fetch_fundamentals_live(ticker)
+    if fundamentals:
+        raw["fundamentals"] = fundamentals
+        raw["data_source"] = "financial-datasets.ai+yfinance"
+    else:
+        raw["data_source"] = "yfinance"
     return raw
 
 
 async def fetch_snapshot_asof(ticker: str, as_of: date) -> dict[str, Any]:
-    """Return a price-based snapshot of `ticker` as of `as_of`.
-
-    Only price data is historical — yfinance doesn't expose point-in-time
-    fundamentals, so this snapshot is deliberately narrower than the live
-    one in `fetch_snapshot`.
+    """Return a price-based snapshot of `ticker` as of `as_of`, augmented
+    with point-in-time fundamentals when fd.ai is configured.
     """
     ticker = ticker.strip().upper()
+
+    # Prices: try fd.ai daily closes; fall back to yfinance. Either way we
+    # run `_build_asof_snapshot` on a uniform list of (date, float) pairs.
     try:
-        return await asyncio.to_thread(_yfinance_snapshot_asof, ticker, as_of)
+        closes = await fd.fetch_daily_closes(
+            ticker, as_of - timedelta(days=400), as_of
+        )
     except Exception as exc:
-        logger.warning("market_data asof fetch failed for %s @ %s: %s", ticker, as_of, exc)
-        return {
-            "ticker": ticker,
-            "as_of": as_of.isoformat(),
-            "error": f"snapshot unavailable: {exc}",
-        }
+        logger.warning("fd.ai prices failed for %s @ %s: %s", ticker, as_of, exc)
+        closes = None
+    source_prices = "fd.ai"
+    if not closes:
+        try:
+            closes = await asyncio.to_thread(
+                _yfinance_history_closes, ticker, as_of - timedelta(days=400), as_of
+            )
+            source_prices = "yfinance"
+        except Exception as exc:
+            logger.warning(
+                "market_data asof prices failed for %s @ %s: %s", ticker, as_of, exc
+            )
+            return {
+                "ticker": ticker,
+                "as_of": as_of.isoformat(),
+                "error": f"snapshot unavailable: {exc}",
+            }
+
+    snapshot = _build_asof_snapshot(ticker, as_of, closes)
+
+    fundamentals = await fd.fetch_fundamentals_asof(ticker, as_of)
+    if fundamentals:
+        snapshot["fundamentals"] = fundamentals
+        snapshot["data_source"] = f"{source_prices}+fd.ai"
+    else:
+        snapshot["data_source"] = source_prices
+    return snapshot
 
 
 async def fetch_forward_return(
     ticker: str, from_date: date, to_date: date
 ) -> float | None:
-    """Simple return from last close <= from_date to last close <= to_date."""
+    """Simple return from last close <= from_date to last close <= to_date.
+
+    Prefers fd.ai for prices; falls back to yfinance.
+    """
     ticker = ticker.strip().upper()
+    window_start = from_date - timedelta(days=10)
+    window_end = to_date + timedelta(days=10)
+
+    closes = None
     try:
-        return await asyncio.to_thread(
-            _yfinance_forward_return, ticker, from_date, to_date
-        )
+        closes = await fd.fetch_daily_closes(ticker, window_start, window_end)
     except Exception as exc:
-        logger.warning(
-            "market_data forward-return failed for %s %s→%s: %s",
-            ticker,
-            from_date,
-            to_date,
-            exc,
-        )
+        logger.warning("fd.ai forward prices failed: %s", exc)
+    if not closes:
+        try:
+            closes = await asyncio.to_thread(
+                _yfinance_history_closes, ticker, window_start, window_end
+            )
+        except Exception as exc:
+            logger.warning(
+                "market_data forward-return failed for %s %s→%s: %s",
+                ticker,
+                from_date,
+                to_date,
+                exc,
+            )
+            return None
+
+    if not closes:
         return None
+    start = _last_close_on_or_before(closes, from_date)
+    end = _last_close_on_or_before(closes, to_date)
+    if start is None or end is None or start[1] == 0:
+        return None
+    return end[1] / start[1] - 1.0
 
 
 def _yfinance_snapshot(ticker: str) -> dict[str, Any]:
@@ -138,11 +193,13 @@ def _last_close_on_or_before(
     return best
 
 
-def _yfinance_snapshot_asof(ticker: str, as_of: date) -> dict[str, Any]:
-    # Pull a year's worth of bars ending at as_of so we can compute the
-    # rolling window indicators. One extra day of headroom covers weekends.
-    window_start = as_of - timedelta(days=400)
-    closes = _yfinance_history_closes(ticker, window_start, as_of)
+def _build_asof_snapshot(
+    ticker: str, as_of: date, closes: list[tuple[date, float]]
+) -> dict[str, Any]:
+    """Source-agnostic: builds the price-derived snapshot from a bar series.
+
+    `closes` should cover at least the past year ending on/near as_of.
+    """
     if not closes:
         return {
             "ticker": ticker,
@@ -244,17 +301,3 @@ def _downsample_weekly(
     ]
 
 
-def _yfinance_forward_return(
-    ticker: str, from_date: date, to_date: date
-) -> float | None:
-    # Pull an inclusive window that covers both anchors.
-    closes = _yfinance_history_closes(
-        ticker, from_date - timedelta(days=10), to_date + timedelta(days=10)
-    )
-    if not closes:
-        return None
-    start = _last_close_on_or_before(closes, from_date)
-    end = _last_close_on_or_before(closes, to_date)
-    if start is None or end is None or start[1] == 0:
-        return None
-    return end[1] / start[1] - 1.0

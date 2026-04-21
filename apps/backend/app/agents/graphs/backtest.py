@@ -34,24 +34,30 @@ _SCORER_MODEL = "claude-haiku-4-5"
 _SIGNAL_RE = re.compile(r"SIGNAL\s*:\s*(BUY|HOLD|PASS)", re.IGNORECASE)
 
 # Dedicated scorer system prompt. The persona row's prompt is written for a
-# memo-producing agent with access to fundamentals, so handing it to Haiku
-# during a backtest (which can only see price history) produces universal
-# PASSes. Instead we tell Haiku to emit a tactical price signal, flavored by
-# the persona's sensibility.
+# memo-producing agent, which produces universal PASSes when handed a single
+# Haiku call per step. This prompt instead asks Haiku to emit a tactical
+# BUY/HOLD/PASS signal in the persona's style, using whatever the snapshot
+# carries — point-in-time fundamentals from financial-datasets.ai when a
+# key is configured, else price-only indicators.
 _SCORER_SYSTEM = (
-    "You are a tactical trend scorer inside an equities backtester. You only\n"
-    "have price-based indicators (close, moving averages, returns, drawdown,\n"
-    "volatility) — fundamentals are not available. Score the setup as one of\n"
-    "BUY, HOLD, or PASS.\n\n"
-    "BUY when momentum and trend structure both support taking the position\n"
-    "over the next step. HOLD when the setup is ambiguous but not hostile.\n"
-    "PASS when the trend is breaking or drawdown/volatility warn you off.\n\n"
+    "You are a tactical signal generator inside an equities backtester. For\n"
+    "each snapshot you emit exactly one of BUY, HOLD, or PASS.\n\n"
+    "Snapshots may include:\n"
+    "- price indicators: close, MA20/50/200 distances, drawdown, 52w range,\n"
+    "  annualized volatility, 4w/52w returns\n"
+    "- a `fundamentals` block (point-in-time): P/E, P/B, EV/EBITDA, margins,\n"
+    "  ROE/ROIC, revenue/earnings growth, debt, free cash flow\n\n"
+    "Use every block present. If fundamentals are available, weigh them in\n"
+    "the persona's style. If only prices are present, score the trend setup.\n"
+    "Do not demand data that isn't in the snapshot — work with what's there.\n\n"
+    "BUY when the setup is clean in the dimensions you can see.\n"
+    "HOLD when signals conflict or the picture is ambiguous.\n"
+    "PASS when the trend is breaking or fundamentals/valuation disqualify.\n\n"
     "Lean on the PERSONA_STYLE the user provides — it's a sensibility, not a\n"
-    "licence to demand fundamentals you don't have. Be willing to BUY when\n"
-    "the price signal is clean, even without balance-sheet data.\n\n"
+    "licence to demand fields that aren't there.\n\n"
     "Respond in this exact format and nothing else:\n"
     "SIGNAL: BUY|HOLD|PASS\n"
-    "REASON: <one short sentence grounded in a number from the snapshot>"
+    "REASON: <one short sentence grounded in one or two concrete numbers>"
 )
 
 # One-liner style hints per persona — used as flavor in the user message so
