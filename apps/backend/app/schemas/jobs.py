@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-JobType = Literal["research", "committee", "backtest"]
+JobType = Literal["research", "committee", "backtest", "ideation"]
 JobStatus = Literal["queued", "running", "done", "error", "budget_exceeded"]
 
 
@@ -27,6 +27,19 @@ class CommitteeInputs(BaseModel):
     ticker: str = Field(min_length=1, max_length=10)
     prompt: str | None = None
     personas: list[str] | None = None
+
+
+class IdeationInputs(BaseModel):
+    """Ideation job inputs.
+
+    Each enabled persona (or the explicit subset) is asked to surface
+    `num_per_persona` tickers worth a deeper look, with one-sentence
+    theses. Candidates land in the `ideas` table as `pending`.
+    """
+
+    framing: str | None = None
+    personas: list[str] | None = None
+    num_per_persona: int = Field(default=3, ge=1, le=6)
 
 
 class BacktestInputs(BaseModel):

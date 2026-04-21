@@ -1,9 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ApproveResult,
   ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
   DailySpend,
+  Idea,
+  IdeaDecision,
+  IdeaStatus,
   JobEvent,
   JobSummary,
   LiveEvent,
@@ -56,6 +60,12 @@ const api: ManageApi = {
   deletePosition: (id: number): Promise<void> =>
     ipcRenderer.invoke("portfolio:delete", id),
   spendToday: (): Promise<DailySpend> => ipcRenderer.invoke("spend:today"),
+  listIdeas: (opts?: {
+    status?: IdeaStatus | undefined;
+    ideationJobId?: string | undefined;
+  }): Promise<Idea[]> => ipcRenderer.invoke("ideas:list", opts ?? {}),
+  decideIdea: (id: number, body: IdeaDecision): Promise<ApproveResult> =>
+    ipcRenderer.invoke("ideas:decide", id, body),
 };
 
 contextBridge.exposeInMainWorld("api", api);

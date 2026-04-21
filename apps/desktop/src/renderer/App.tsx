@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CommitteeRoom } from "./rooms/CommitteeRoom.js";
+import { Ideas } from "./rooms/Ideas.js";
 import { Office } from "./rooms/Office.js";
 import { ResearchDesk } from "./rooms/ResearchDesk.js";
 import { Roster } from "./rooms/Roster.js";
@@ -9,6 +10,7 @@ import { useLive } from "./liveStore.js";
 
 type Room =
   | "office"
+  | "ideas"
   | "research"
   | "committee"
   | "floor"
@@ -17,6 +19,7 @@ type Room =
 
 const ROOMS: { id: Room; label: string }[] = [
   { id: "office", label: "Office" },
+  { id: "ideas", label: "Ideas" },
   { id: "research", label: "Research Desk" },
   { id: "committee", label: "Committee Room" },
   { id: "floor", label: "Trading Floor" },
@@ -56,10 +59,10 @@ export function App(): JSX.Element {
             ))}
           </nav>
         </div>
-        <span className="text-xs text-neutral-500">Phase 5</span>
       </header>
 
       {room === "office" && <Office />}
+      {room === "ideas" && <Ideas />}
       {room === "research" && <ResearchDesk />}
       {room === "committee" && <CommitteeRoom />}
       {room === "floor" && <TradingFloor />}

@@ -330,6 +330,68 @@ def list_performance_for_persona(persona_id: int) -> list[dict[str, Any]]:
         return [dict(row) for row in cur.fetchall()]
 
 
+def insert_idea(
+    ideation_job_id: str, persona: str, ticker: str, thesis: str
+) -> int:
+    with connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO ideas (ideation_job_id, persona, ticker, thesis) "
+            "VALUES (?, ?, ?, ?)",
+            (ideation_job_id, persona, ticker.upper(), thesis),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_ideas(
+    status: str | None = None,
+    ideation_job_id: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if ideation_job_id:
+        clauses.append("ideation_job_id = ?")
+        params.append(ideation_job_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    select = (
+        "SELECT id, ideation_job_id, persona, ticker, thesis, status, "
+        "research_job_id, created_at, updated_at "
+    )
+    # Clauses come from a closed set (status, ideation_job_id); values are
+    # parameterized below, so this string-built WHERE is not injectable.
+    sql = f"{select}FROM ideas {where} ORDER BY id DESC LIMIT ?"  # noqa: S608
+    params.append(limit)
+    with connection() as conn:
+        cur = conn.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_idea(idea_id: int) -> dict[str, Any] | None:
+    with connection() as conn:
+        cur = conn.execute(
+            "SELECT id, ideation_job_id, persona, ticker, thesis, status, "
+            "research_job_id, created_at, updated_at FROM ideas WHERE id = ?",
+            (idea_id,),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def update_idea_status(
+    idea_id: int, status: str, research_job_id: str | None = None
+) -> bool:
+    with connection() as conn:
+        cur = conn.execute(
+            "UPDATE ideas SET status = ?, research_job_id = COALESCE(?, research_job_id), "
+            "updated_at = datetime('now') WHERE id = ?",
+            (status, research_job_id, idea_id),
+        )
+        return cur.rowcount > 0
+
+
 def list_recent_jobs(limit: int = 50) -> list[dict[str, Any]]:
     with connection() as conn:
         cur = conn.execute(

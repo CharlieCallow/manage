@@ -27,6 +27,7 @@ from starlette.websockets import WebSocketState
 from app.agents.base import AgentContext, BudgetTracker
 from app.agents.graphs.backtest import run_backtest
 from app.agents.graphs.committee import run_committee
+from app.agents.graphs.ideation import run_ideation
 from app.agents.graphs.research import run_research
 from app.config import settings
 from app.schemas.events import ErrorEvent, JobDoneEvent, JobEvent, StatusEvent
@@ -36,6 +37,7 @@ from app.schemas.jobs import (
     CommitteeInputs,
     CreateJobRequest,
     CreateJobResponse,
+    IdeationInputs,
     JobRow,
     JobSummary,
     ResearchInputs,
@@ -238,6 +240,10 @@ async def _run_job(job_id: str, req: CreateJobRequest) -> None:
                 stream = run_backtest(
                     job, BacktestInputs.model_validate(req.inputs), ctx
                 )
+            elif req.type == "ideation":
+                stream = run_ideation(
+                    job, IdeationInputs.model_validate(req.inputs), ctx
+                )
             else:
                 raise HTTPException(
                     status_code=400,
@@ -291,10 +297,13 @@ def _now() -> str:
 # ---- routes ----------------------------------------------------------------
 
 
-@router.post("/jobs", response_model=CreateJobResponse)
-async def create_job(req: CreateJobRequest) -> CreateJobResponse:
-    # Validate inputs synchronously so malformed requests get 422 instead of
-    # surfacing as an ErrorEvent on the WebSocket.
+def enqueue_job(req: CreateJobRequest) -> str:
+    """Shared path for POST /jobs and internal spawners (e.g. idea approval).
+
+    Runs the same validation + daily-cap + insert + task-spawn dance as the
+    public endpoint, minus the HTTP response wrapping. Raises HTTPException
+    on validation or budget errors.
+    """
     try:
         if req.type == "research":
             ResearchInputs.model_validate(req.inputs)
@@ -302,6 +311,8 @@ async def create_job(req: CreateJobRequest) -> CreateJobResponse:
             CommitteeInputs.model_validate(req.inputs)
         elif req.type == "backtest":
             BacktestInputs.model_validate(req.inputs)
+        elif req.type == "ideation":
+            IdeationInputs.model_validate(req.inputs)
         else:
             raise HTTPException(
                 status_code=400, detail=f"job type not implemented: {req.type}"
@@ -335,17 +346,16 @@ async def create_job(req: CreateJobRequest) -> CreateJobResponse:
         conn.execute(
             "INSERT INTO jobs (id, type, inputs_json, status, budget_usd) "
             "VALUES (?, ?, ?, ?, ?)",
-            (
-                job_id,
-                req.type,
-                json.dumps(req.inputs),
-                "queued",
-                budget,
-            ),
+            (job_id, req.type, json.dumps(req.inputs), "queued", budget),
         )
 
     asyncio.create_task(_run_job(job_id, req))
-    return CreateJobResponse(job_id=job_id)
+    return job_id
+
+
+@router.post("/jobs", response_model=CreateJobResponse)
+async def create_job(req: CreateJobRequest) -> CreateJobResponse:
+    return CreateJobResponse(job_id=enqueue_job(req))
 
 
 @router.get("/jobs", response_model=list[JobSummary])

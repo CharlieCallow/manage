@@ -6,7 +6,7 @@ Analytical / educational tool only. Executes no trades. See `CLAUDE.md` §14.
 
 ## Status
 
-**Phase 5 — Time Machine.** All six rooms from the phased plan are live: Office (portfolio, spend, jobs), Research Desk, Committee Room, Trading Floor (ambient agent activity), Time Machine (time-stepped backtester + persona scoreboard), and Roster. See `CLAUDE.md` §12.
+**Post-Phase-5 baseline.** All six rooms from the phased plan are live — Office (portfolio, spend, jobs), Research Desk, Committee Room, Trading Floor (ambient agent activity), Time Machine (time-stepped backtester + persona scoreboard), Roster — plus a seventh room, **Ideas**, where every persona surfaces candidate tickers you can approve into full research jobs. See `CLAUDE.md` §12.
 
 ## Quickstart
 

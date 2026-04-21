@@ -32,10 +32,40 @@ export interface BacktestInputs {
   step_weeks: number;
 }
 
+export interface IdeationInputs {
+  framing?: string | undefined;
+  personas?: PersonaName[] | undefined;
+  num_per_persona: number;
+}
+
 export type CreateJobArgs =
   | { type: "research"; inputs: ResearchInputs; budget_usd?: number | undefined }
   | { type: "committee"; inputs: CommitteeInputs; budget_usd?: number | undefined }
-  | { type: "backtest"; inputs: BacktestInputs; budget_usd?: number | undefined };
+  | { type: "backtest"; inputs: BacktestInputs; budget_usd?: number | undefined }
+  | { type: "ideation"; inputs: IdeationInputs; budget_usd?: number | undefined };
+
+export type IdeaStatus = "pending" | "approved" | "dismissed";
+
+export interface Idea {
+  id: number;
+  ideation_job_id: string;
+  persona: PersonaName;
+  ticker: string;
+  thesis: string;
+  status: IdeaStatus;
+  research_job_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdeaDecision {
+  status: "approved" | "dismissed";
+}
+
+export interface ApproveResult {
+  idea: Idea;
+  research_job_id: string | null;
+}
 
 export interface CreateJobResult {
   jobId: string;
@@ -173,6 +203,11 @@ export interface ManageApi {
   upsertPosition(body: UpsertPosition): Promise<PortfolioPosition>;
   deletePosition(id: number): Promise<void>;
   spendToday(): Promise<DailySpend>;
+  listIdeas(opts?: {
+    status?: IdeaStatus | undefined;
+    ideationJobId?: string | undefined;
+  }): Promise<Idea[]>;
+  decideIdea(id: number, body: IdeaDecision): Promise<ApproveResult>;
 }
 
 declare global {

@@ -53,10 +53,17 @@ class FakeMessages:
 
     def stream(self, **kwargs: Any) -> Any:
         system = kwargs.get("system", "")
+        messages = kwargs.get("messages") or []
+        user = messages[0]["content"] if messages else ""
 
         if "tactical signal generator" in system:
             # Backtest scorer call — respond in the required format.
             chunks = ["SIGNAL: BUY\n", "REASON: positive momentum."]
+        elif "surface the candidates" in user:
+            # Ideation call — emit TICKER/THESIS pairs keyed by persona
+            # so each speaker produces distinguishable ideas.
+            key = _match_key(system, self._by_key) or "default"
+            chunks = _IDEATION_CHUNKS.get(key, _IDEATION_CHUNKS["default"])
         else:
             key = _match_key(system, self._by_key) or "default"
             chunks = self._by_key.get(key, ["ok"])
@@ -73,6 +80,25 @@ def _match_key(system: str, mapping: dict[str, list[str]]) -> str | None:
         if key in system:
             return key
     return None
+
+
+# Per-persona ideation output. Keys match system-prompt substrings so each
+# persona produces distinguishable candidates.
+_IDEATION_CHUNKS: dict[str, list[str]] = {
+    "mold of Warren Buffett": [
+        "TICKER: KO\nTHESIS: durable moat, boring compounder.\n\n",
+        "TICKER: MCO\nTHESIS: toll road on credit issuance.\n",
+    ],
+    "mold of Stanley Druckenmiller": [
+        "TICKER: NVDA\nTHESIS: AI capex cycle on the right side of liquidity.\n\n",
+        "TICKER: GLD\nTHESIS: real-rate peak sets up the metal.\n",
+    ],
+    "mold of Michael": [
+        "TICKER: CVNA\nTHESIS: covenant risk if used-car comps roll.\n\n",
+        "TICKER: DKS\nTHESIS: sandbagging guidance on hard comps.\n",
+    ],
+    "default": ["TICKER: SPY\nTHESIS: broad-market placeholder.\n"],
+}
 
 
 class FakeAnthropic:

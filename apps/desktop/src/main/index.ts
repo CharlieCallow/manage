@@ -3,10 +3,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
 import type {
+  ApproveResult,
   ArtifactRow,
   CreateJobArgs,
   CreateJobResult,
   DailySpend,
+  Idea,
+  IdeaDecision,
+  IdeaStatus,
   JobEvent,
   JobSummary,
   LiveEvent,
@@ -236,6 +240,38 @@ ipcMain.handle("spend:today", async (): Promise<DailySpend> => {
   if (!res.ok) throw new Error(`spend_today failed: ${res.status}`);
   return (await res.json()) as DailySpend;
 });
+
+ipcMain.handle(
+  "ideas:list",
+  async (
+    _evt,
+    opts: { status?: IdeaStatus; ideationJobId?: string },
+  ): Promise<Idea[]> => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set("status", opts.status);
+    if (opts?.ideationJobId) params.set("ideation_job_id", opts.ideationJobId);
+    const q = params.toString();
+    const res = await fetch(`${HTTP_BASE}/ideas${q ? `?${q}` : ""}`);
+    if (!res.ok) throw new Error(`ideas list failed: ${res.status}`);
+    return (await res.json()) as Idea[];
+  },
+);
+
+ipcMain.handle(
+  "ideas:decide",
+  async (_evt, id: number, body: IdeaDecision): Promise<ApproveResult> => {
+    const res = await fetch(`${HTTP_BASE}/ideas/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`ideas decide failed: ${res.status} ${text}`);
+    }
+    return (await res.json()) as ApproveResult;
+  },
+);
 
 app.whenReady().then(() => {
   createWindow();

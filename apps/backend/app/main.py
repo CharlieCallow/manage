@@ -21,6 +21,7 @@ from app.agents.personas.burry import default_prompt_template as burry_prompt
 from app.agents.personas.druckenmiller import (
     default_prompt_template as druckenmiller_prompt,
 )
+from app.api.ideas import router as ideas_router
 from app.api.jobs import router as jobs_router
 from app.api.portfolio import router as portfolio_router
 from app.api.roster import router as roster_router
@@ -61,6 +62,7 @@ app = FastAPI(title="manage backend", version="0.0.0", lifespan=lifespan)
 app.include_router(jobs_router)
 app.include_router(roster_router)
 app.include_router(portfolio_router)
+app.include_router(ideas_router)
 
 
 @app.get("/health")
