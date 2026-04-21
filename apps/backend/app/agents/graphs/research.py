@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import AgentContext, LLMAgent
+from app.agents.prompt import contributor_user_message
 from app.agents.registry import load_analyst, load_persona
+from app.config import cost_usd
 from app.schemas.events import (
     ArtifactEvent,
     ArtifactPayload,
@@ -27,6 +29,10 @@ from app.schemas.jobs import JobRow, ResearchInputs
 from app.store import db
 from app.tools import charts, market_data
 from app.tools import financial_datasets as fd
+
+# Non-lead personas run on Haiku for their quick takes — CLAUDE.md §8
+# "hot-loop calls" pattern. Keeps research total ≤ ~$0.15 on Sonnet.
+_CONTRIBUTOR_MODEL = "claude-haiku-4-5"
 
 # Post-Step-3: four analysts fan out in parallel for the full report.
 # Each one's output lands in ctx.analyst_outputs and feeds the persona's
@@ -54,16 +60,14 @@ async def run_research(
     ctx.user_prompt = inputs.prompt
     ctx.style = inputs.style
 
-    # 1. Snapshot + fundamentals series in parallel. Snapshot is the
-    # primary input; the fundamentals series is best-effort (fd.ai only).
+    # 1. Snapshot, then fundamentals series (serial).
+    # fd.ai short-circuits if no key is set.
     yield StatusEvent(agent="graph", status="fetching_market_data")
-    snapshot_task = asyncio.create_task(market_data.fetch_snapshot(inputs.ticker))
-    series_task = asyncio.create_task(
-        fd.fetch_fundamentals_series(inputs.ticker, datetime.now(UTC).date())
-    )
-    ctx.snapshot = await snapshot_task
+    ctx.snapshot = await market_data.fetch_snapshot(inputs.ticker)
     try:
-        fundamentals_series = await series_task
+        fundamentals_series = await fd.fetch_fundamentals_series(
+            inputs.ticker, datetime.now(UTC).date()
+        )
     except Exception:
         fundamentals_series = None
 
@@ -80,7 +84,21 @@ async def run_research(
         yield StatusEvent(agent="graph", status="budget_exceeded")
         return
 
-    # 3. Persona synthesis — memo collected via TokenEvent buffer
+    # 3. Team views — every enabled persona except the lead contributes a
+    # short take on Haiku. Their views feed the lead's synthesis.
+    contributor_names = _contributor_personas(exclude=inputs.persona)
+    if contributor_names:
+        async for event in _run_contributor_views(
+            contributor_names, job, ctx
+        ):
+            yield event
+
+    if ctx.budget.exceeded():
+        yield StatusEvent(agent="graph", status="budget_exceeded")
+        return
+
+    # 4. Lead persona synthesizes the memo, with analyst outputs + team views
+    # both available in ctx.
     persona = load_persona(inputs.persona)
     memo_chunks: list[str] = []
     async for event in persona.run(job, ctx):
@@ -382,3 +400,99 @@ async def _run_parallel(
 
     for name, chunks in buffers.items():
         ctx.analyst_outputs[name] = "".join(chunks).strip()
+
+
+def _contributor_personas(exclude: str) -> list[str]:
+    """Enabled persona names minus the lead."""
+    rows = db.list_roster("personas")
+    return [
+        str(r["name"])
+        for r in rows
+        if bool(r.get("enabled", 1)) and r["name"] != exclude
+    ]
+
+
+async def _run_contributor_views(
+    names: list[str], job: JobRow, ctx: AgentContext
+) -> AsyncIterator[JobEvent]:
+    """Parallel quick-take from every non-lead persona on Haiku.
+
+    Each contributor's streamed tokens surface under its persona name so
+    the UI can render a dedicated panel. The final text lands in
+    ctx.persona_views for the lead synthesis step to pick up.
+    """
+    queue: asyncio.Queue[tuple[str, JobEvent] | tuple[str, None]] = asyncio.Queue()
+    buffers: dict[str, list[str]] = {n: [] for n in names}
+
+    async def drain(name: str) -> None:
+        try:
+            async for event in _run_contributor(name, job, ctx):
+                if isinstance(event, TokenEvent):
+                    buffers[name].append(event.text)
+                await queue.put((name, event))
+        finally:
+            await queue.put((name, None))
+
+    tasks = [asyncio.create_task(drain(n)) for n in names]
+    done = 0
+    try:
+        while done < len(names):
+            _, event = await queue.get()
+            if event is None:
+                done += 1
+                continue
+            yield event
+    finally:
+        await asyncio.gather(*tasks, return_exceptions=False)
+
+    for name, chunks in buffers.items():
+        ctx.persona_views[name] = "".join(chunks).strip()
+
+
+async def _run_contributor(
+    name: str, job: JobRow, ctx: AgentContext
+) -> AsyncIterator[JobEvent]:
+    """Run one contributor persona on Haiku and stream tokens + status."""
+    row = db.get_persona_by_name(name)
+    if row is None:
+        return
+    if ctx.budget.exceeded():
+        yield StatusEvent(agent=name, status="budget_exceeded")
+        return
+
+    yield StatusEvent(agent=name, status="thinking")
+
+    user_message = contributor_user_message(
+        ticker=ctx.ticker or "(unspecified)",
+        snapshot=ctx.snapshot,
+        analyst_outputs=ctx.analyst_outputs,
+    )
+
+    input_tokens = 0
+    output_tokens = 0
+    async with ctx.client.messages.stream(
+        model=_CONTRIBUTOR_MODEL,
+        max_tokens=240,
+        system=str(row["prompt_template"]),
+        messages=[{"role": "user", "content": user_message}],
+    ) as stream:
+        async for chunk in stream.text_stream:
+            if chunk:
+                yield TokenEvent(agent=name, text=chunk)
+            if ctx.budget.exceeded():
+                yield StatusEvent(agent=name, status="budget_exceeded")
+                return
+        final = await stream.get_final_message()
+        input_tokens = final.usage.input_tokens
+        output_tokens = final.usage.output_tokens
+
+    call_cost = cost_usd(_CONTRIBUTOR_MODEL, input_tokens, output_tokens)
+    ctx.budget.charge(call_cost)
+    db.log_api_call(
+        job_id=ctx.job.id,
+        model=_CONTRIBUTOR_MODEL,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost=call_cost,
+    )
+    yield StatusEvent(agent=name, status="done")

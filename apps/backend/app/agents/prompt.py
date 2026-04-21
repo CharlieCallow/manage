@@ -20,24 +20,57 @@ def format_analyst_block(analyst_outputs: dict[str, str]) -> str:
     return "\n\n".join(parts)
 
 
+def format_persona_views(persona_views: dict[str, str]) -> str:
+    if not persona_views:
+        return "(no team views)"
+    parts = []
+    for name, text in persona_views.items():
+        parts.append(f"[{name}]\n{text.strip()}")
+    return "\n\n".join(parts)
+
+
 def persona_user_message(
     ticker: str,
     snapshot: dict[str, Any] | None,
     analyst_outputs: dict[str, str],
     user_prompt: str | None,
     style: str = "classic",
+    persona_views: dict[str, str] | None = None,
 ) -> str:
     framing = (user_prompt or "").strip()
+    views = persona_views or {}
     context = (
         f"Research target: {ticker}\n\n"
         f"Market snapshot (from our data layer):\n{format_snapshot(snapshot)}\n\n"
         f"Analyst inputs:\n{format_analyst_block(analyst_outputs)}\n\n"
+        f"Team views (quick takes from your colleagues on the desk):\n"
+        f"{format_persona_views(views)}\n\n"
         f"PM framing: {framing or '(none)'}\n\n"
     )
 
     if style == "citrini":
         return context + _CITRINI_INSTRUCTIONS
     return context + _CLASSIC_INSTRUCTIONS
+
+
+def contributor_user_message(
+    ticker: str,
+    snapshot: dict[str, Any] | None,
+    analyst_outputs: dict[str, str],
+) -> str:
+    """Prompt for a non-lead persona to give a quick team take.
+
+    Deliberately distinctive ("quick team take") so the test fake can
+    detect it and route to a shorter response.
+    """
+    return (
+        f"You are giving a quick team take on {ticker} for a colleague who\n"
+        "is writing the full memo. 80–130 words in your voice. Lead with\n"
+        "your conclusion. If you'd PASS, say PASS and why. Do not restate\n"
+        "the snapshot or the analyst notes verbatim — react to them.\n\n"
+        f"Market snapshot:\n{format_snapshot(snapshot)}\n\n"
+        f"Analyst inputs:\n{format_analyst_block(analyst_outputs)}\n"
+    )
 
 
 _CLASSIC_INSTRUCTIONS = """\
@@ -61,6 +94,16 @@ the top so the app can parse your call:
 
 ## Executive summary
 Two to four sentences. Lead with your conclusion.
+
+## Team views
+One-sentence **attributed** takes from each colleague listed in "Team
+views" above, in their own sensibility. Format:
+
+- **{Name}:** one sentence drawn from their take.
+
+If a teammate's take contradicts yours, say so plainly — the memo should
+reflect a real desk, not a unanimous front. Skip this section only if
+the team views block above is empty.
 
 ## Investment thesis
 Three short pillars — each one sentence or two, ideally one concrete

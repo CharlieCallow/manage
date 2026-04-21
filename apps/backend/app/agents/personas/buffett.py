@@ -22,6 +22,7 @@ class BuffettAgent(LLMAgent):
             ticker=ctx.ticker or "(unspecified)",
             snapshot=ctx.snapshot,
             analyst_outputs=ctx.analyst_outputs,
+            persona_views=ctx.persona_views,
             user_prompt=ctx.user_prompt,
             style=ctx.style,
         )

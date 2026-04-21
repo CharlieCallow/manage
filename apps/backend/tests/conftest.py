@@ -64,6 +64,12 @@ class FakeMessages:
             # so each speaker produces distinguishable ideas.
             key = _match_key(system, self._by_key) or "default"
             chunks = _IDEATION_CHUNKS.get(key, _IDEATION_CHUNKS["default"])
+        elif "quick team take" in user:
+            # Research team-view contributor call on Haiku. Short
+            # persona-flavored takes so the lead synthesis has real text
+            # to quote and the UI panels have something to show.
+            key = _match_key(system, self._by_key) or "default"
+            chunks = _CONTRIBUTOR_CHUNKS.get(key, _CONTRIBUTOR_CHUNKS["default"])
         elif "Citrini Research." in user:
             # Citrini-style research synthesis — emit a memo with a
             # parseable basket block.
@@ -108,6 +114,17 @@ _IDEATION_CHUNKS: dict[str, list[str]] = {
         "TICKER: DKS\nTHESIS: sandbagging guidance on hard comps.\n",
     ],
     "default": ["TICKER: SPY\nTHESIS: broad-market placeholder.\n"],
+}
+
+
+# Team-view contributor chunks, keyed on persona system prompts.
+_CONTRIBUTOR_CHUNKS: dict[str, list[str]] = {
+    "mold of Warren Buffett": ["I'd watch. Moat is real but price is full."],
+    "mold of Stanley Druckenmiller": [
+        "Trend is intact — buy while rates stay pinned."
+    ],
+    "mold of Michael": ["Balance sheet fine, but positioning is one-sided."],
+    "default": ["Short take placeholder."],
 }
 
 

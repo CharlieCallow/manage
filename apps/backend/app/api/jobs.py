@@ -429,15 +429,21 @@ async def stream_job(websocket: WebSocket, job_id: str) -> None:
         await websocket.close()
         return
 
-    replay = _load_events(job_id)
+    # Snapshot DB events and subscribe under the same lock _emit uses, so
+    # no event can land between read-DB and subscribe — otherwise live
+    # events emitted during replay would be lost (they'd go to a queue
+    # list that doesn't yet contain ours).
+    async with _event_lock(job_id):
+        replay = _load_events(job_id)
+        queue = await _subscribe(job_id)
+
     for event in replay:
         await websocket.send_json(event.model_dump())
 
     if job.status in {"done", "error", "budget_exceeded"}:
+        await _unsubscribe(job_id, queue)
         await websocket.close()
         return
-
-    queue = await _subscribe(job_id)
     try:
         async for event in _drain(queue):
             if websocket.application_state != WebSocketState.CONNECTED:

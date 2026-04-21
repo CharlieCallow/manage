@@ -46,6 +46,7 @@ class AgentContext:
     budget: BudgetTracker
     snapshot: dict[str, Any] | None = None
     analyst_outputs: dict[str, str] = field(default_factory=dict)
+    persona_views: dict[str, str] = field(default_factory=dict)
     transcript: list[TranscriptTurn] = field(default_factory=list)
     user_prompt: str | None = None
     ticker: str | None = None

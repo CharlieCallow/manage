@@ -112,7 +112,38 @@ def test_research_fans_out_to_four_analysts(client: TestClient) -> None:
         assert {"valuation", "fundamentals", "macro", "technicals"}.issubset(
             agents_seen
         )
-        assert "buffett" in agents_seen
+        # Lead persona + both non-lead personas (as team-view contributors).
+        assert {"buffett", "druckenmiller", "burry"}.issubset(agents_seen)
+
+
+def test_research_memo_cites_team_views(client: TestClient) -> None:
+    with client:
+        resp = client.post(
+            "/jobs",
+            json={
+                "type": "research",
+                "inputs": {"persona": "buffett", "ticker": "KO"},
+                "budget_usd": 1.0,
+            },
+        )
+        job_id = resp.json()["job_id"]
+        events: list[dict[str, Any]] = []
+        with client.websocket_connect(f"/ws/jobs/{job_id}") as ws:
+            while True:
+                event = ws.receive_json()
+                events.append(event)
+                if event["type"] == "job_done":
+                    break
+
+        # Each non-lead persona streams its view under its own agent name.
+        views_by = {
+            e["agent"]: e["text"]
+            for e in events
+            if e["type"] == "token"
+            and e.get("agent") in {"druckenmiller", "burry"}
+        }
+        assert "druckenmiller" in views_by
+        assert "burry" in views_by
 
 
 def test_citrini_style_parses_basket(client: TestClient) -> None:

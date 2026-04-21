@@ -86,10 +86,14 @@ def test_spend_today_reflects_research_run(client: TestClient) -> None:
         resp = client.get("/spend/today")
         body = resp.json()
         # The fake Anthropic client reports 10 input + 20 output tokens per call.
-        # Research runs 5 agents (valuation, fundamentals, macro, technicals,
-        # persona) → 5 calls.
+        # Research runs 4 analysts + 2 contributor views (non-lead personas
+        # on Haiku) + 1 lead persona synthesis = 7 calls.
         assert body["total_usd"] > 0
-        assert body["input_tokens"] == 50
-        assert body["output_tokens"] == 100
-        assert {m["model"] for m in body["by_model"]} == {"claude-sonnet-4-6"}
-        assert sum(m["calls"] for m in body["by_model"]) == 5
+        assert body["input_tokens"] == 70
+        assert body["output_tokens"] == 140
+        by_model = {m["model"]: m for m in body["by_model"]}
+        assert {"claude-sonnet-4-6", "claude-haiku-4-5"}.issubset(by_model.keys())
+        # Contributors alone are on Haiku (2 calls); analysts + lead on Sonnet (5).
+        assert by_model["claude-haiku-4-5"]["calls"] == 2
+        assert by_model["claude-sonnet-4-6"]["calls"] == 5
+        assert sum(m["calls"] for m in body["by_model"]) == 7
