@@ -137,6 +137,19 @@ Triangulate two ways: a quick DCF view (qualitative, with the key
 assumptions you'd need to believe) and a comps view (trading multiples vs.
 peers / history). Resolve to a target range.
 
+### Forecast table
+Include a small markdown table with one trailing-twelve-month "actual"
+column and **two forward years** ("E"). Pick the line items that matter
+for this name (revenue, gross margin, operating margin, FCF, EPS, etc.).
+Use the snapshot's fundamentals where they're available; mark cells `—`
+if you don't have the data. Three rows is plenty. Example shape:
+
+| Metric | TTM | NextY E | +2Y E |
+| --- | ---: | ---: | ---: |
+| Revenue ($B) | 60.9 | 70 | 80 |
+| Operating margin | 30% | 33% | 34% |
+| Free cash flow ($B) | 18.0 | 22 | 27 |
+
 ## Risks
 Three to five specific risks. Not boilerplate — what you'd actually worry
 about.

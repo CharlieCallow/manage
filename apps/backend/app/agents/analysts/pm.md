@@ -10,6 +10,13 @@ Write the PM summary with this structure:
 - **Decision.** A single unambiguous line starting with "Decision:" and
   ending in one of: buy, add, hold, trim, pass, short. If sizing matters,
   state it ({full|half|quarter|starter}).
+- **Cross-asset implications.** Three short bullets — one each on:
+    - **Rates.** What this view implies for duration / curve positioning.
+    - **FX / commodities.** Direct read-through (DXY, oil, gold, the
+      single most relevant cross) when the name has one. If it doesn't,
+      say so plainly.
+    - **Credit / volatility.** Where in the capital structure the call
+      lives, and whether vol is cheap or rich for expressing it.
 - **What would change my mind.** One sentence naming the single observable
   datapoint that would flip the decision.
 

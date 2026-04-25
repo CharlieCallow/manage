@@ -51,9 +51,17 @@ def test_research_streams_parallel_analysts_then_memo(client: TestClient) -> Non
         assert len(artifacts) == 1
         artifact = artifacts[0]["artifact"]
         assert artifact["kind"] == "memo"
-        # Sell-side structure (Step 2).
-        assert "Initiation" in artifact["content_md"]
-        assert "**Rating:**" in artifact["content_md"]
+        # Sell-side structure (Step 2 + report-chrome upgrade).
+        body = artifact["content_md"]
+        assert "Initiation" in body
+        # Cover header.
+        assert "**Lead author:**" in body
+        assert "**Contributors:**" in body
+        # Compliance footer.
+        assert "Important disclosures" in body
+        # Rating + targets live in the JSON sidecar, not the body (the
+        # field lines are stripped from the markdown so the cover + the
+        # frontend rating banner don't render them twice).
         meta = artifact["content_json"]
         assert meta["rating"] == "BUY"
         assert meta["targets"]["base"] == 75.0

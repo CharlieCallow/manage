@@ -11,13 +11,20 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import AgentContext, LLMAgent
 from app.agents.prompt import contributor_user_message
 from app.agents.registry import load_analyst, load_persona
-from app.config import cost_usd
+from app.config import (
+    ANALYST_BYLINES,
+    COMPLIANCE_FOOTER_MD,
+    FIRM_NAME,
+    PERSONA_BYLINES,
+    cost_usd,
+)
 from app.schemas.events import (
     ArtifactEvent,
     ArtifactPayload,
@@ -119,17 +126,30 @@ async def run_research(
     meta = _parse_memo_meta(memo_md)
     basket_chart_url = _render_basket_chart(job.id, meta.get("basket"))
 
+    snapshot_as_of = (
+        ctx.snapshot.get("as_of") if ctx.snapshot else None
+    )
+    snapshot_source = (
+        ctx.snapshot.get("data_source", "yfinance") if ctx.snapshot else "yfinance"
+    )
+    # Parse meta from the persona's raw output BEFORE augmentation —
+    # _augment_memo strips the structured **Rating/Target/Style** field
+    # lines from the body since the cover and rating banner render them
+    # separately. Re-parsing after that strip would lose them.
     memo_md = _augment_memo(
         memo_md,
+        ticker=inputs.ticker,
+        lead_persona=inputs.persona,
+        contributors=list(ctx.persona_views.keys()),
+        analysts=list(ctx.analyst_outputs.keys()),
+        style=inputs.style,
         price_chart_url=price_chart_url,
         margin_chart_url=margin_chart_url,
         basket_chart_url=basket_chart_url,
         fundamentals_table=fundamentals_table,
+        snapshot_as_of=snapshot_as_of,
+        snapshot_source=snapshot_source,
     )
-    # Re-parse AFTER augmentation so the artifact's parsed meta reflects any
-    # structure the injected content added (e.g. the basket stays the same
-    # since the raw BASKET block is unchanged).
-    meta = _parse_memo_meta(memo_md)
     content_json: dict[str, Any] = {
         "ticker": inputs.ticker,
         "persona": inputs.persona,
@@ -274,45 +294,195 @@ def _render_fundamentals_table(snapshot: dict[str, Any] | None) -> str | None:
 def _augment_memo(
     memo_md: str,
     *,
+    ticker: str,
+    lead_persona: str,
+    contributors: list[str],
+    analysts: list[str],
+    style: str,
     price_chart_url: str | None,
     margin_chart_url: str | None,
     basket_chart_url: str | None,
     fundamentals_table: str | None,
+    snapshot_as_of: str | None,
+    snapshot_source: str,
 ) -> str:
-    """Inject charts and the financials table into the memo body.
+    """Wrap the persona's text in firm chrome.
 
-    Price chart + financials table go at the top (after the header fields,
-    before the first ##). Margin trajectory rides just below. Basket chart
-    lands at the very end of the memo so it sits next to the basket block.
+    Splice order: cover header → persona-stripped body → injected charts +
+    financials → basket chart (if any) → compliance footer. A TOC is
+    inserted between the cover and the body when the memo has more than
+    five top-level (##) sections.
     """
+    body = _strip_meta_lines(memo_md)
+    figure = _Figure(start=1)
+
     head_parts: list[str] = []
     if price_chart_url:
-        head_parts.append(f"![Price chart]({price_chart_url})")
+        head_parts.append(
+            figure.markdown(
+                title="Price action — last 52 weeks",
+                url=price_chart_url,
+                source=snapshot_source,
+                as_of=snapshot_as_of,
+            )
+        )
     if fundamentals_table:
         head_parts.append(fundamentals_table)
     if margin_chart_url:
-        head_parts.append(f"![Margin trajectory]({margin_chart_url})")
+        head_parts.append(
+            figure.markdown(
+                title="Margin trajectory — last eight quarters",
+                url=margin_chart_url,
+                source="financial-datasets.ai",
+                as_of=snapshot_as_of,
+            )
+        )
 
-    updated = memo_md
-    if head_parts:
-        addition = "\n\n" + "\n\n".join(head_parts) + "\n\n"
-        lines = updated.splitlines()
-        spliced = False
-        for idx, line in enumerate(lines):
-            if line.startswith("## "):
-                before = "\n".join(lines[:idx]).rstrip()
-                after = "\n".join(lines[idx:])
-                updated = f"{before}\n{addition}{after}"
-                spliced = True
-                break
-        if not spliced:
-            updated = updated.rstrip() + addition
+    body = _splice_before_first_heading(body, head_parts)
 
     if basket_chart_url:
-        updated = updated.rstrip() + (
-            f"\n\n![Basket weights]({basket_chart_url})\n"
+        body = body.rstrip() + "\n\n" + figure.markdown(
+            title="Basket weights — long / short legs",
+            url=basket_chart_url,
+            source="memo basket block",
+            as_of=snapshot_as_of,
+        ) + "\n"
+
+    cover = _render_cover(
+        ticker=ticker,
+        lead_persona=lead_persona,
+        contributors=contributors,
+        analysts=analysts,
+        style=style,
+    )
+    toc = _render_toc(body)
+    footer = COMPLIANCE_FOOTER_MD
+
+    pieces = [cover.rstrip()]
+    if toc:
+        pieces.append(toc.rstrip())
+    pieces.append(body.strip())
+    pieces.append(footer.rstrip())
+    return "\n\n".join(pieces)
+
+
+_META_LINE_RE = re.compile(
+    r"^\s*\*\*(Style|Anchor|Rating|Base target|Bull target|Bear target|Horizon):\*\*[^\n]*\n",
+    re.MULTILINE,
+)
+
+
+def _strip_meta_lines(memo_md: str) -> str:
+    """Remove the structured ** field lines** the persona emits at the top.
+
+    They get carried via content_json + the rating banner, so leaving them
+    in the markdown makes the rendered memo look duplicative.
+    """
+    return _META_LINE_RE.sub("", memo_md)
+
+
+def _splice_before_first_heading(memo_md: str, parts: list[str]) -> str:
+    if not parts:
+        return memo_md
+    addition = "\n\n" + "\n\n".join(parts) + "\n\n"
+    lines = memo_md.splitlines()
+    for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            before = "\n".join(lines[:idx]).rstrip()
+            after = "\n".join(lines[idx:])
+            return f"{before}\n{addition}{after}"
+    return memo_md.rstrip() + addition
+
+
+@dataclass
+class _Figure:
+    """Counter for figure-numbered captions across one memo."""
+
+    start: int = 1
+
+    def markdown(
+        self,
+        *,
+        title: str,
+        url: str,
+        source: str,
+        as_of: str | None,
+    ) -> str:
+        n = self.start
+        self.start += 1
+        as_of_s = f" · as of {as_of}" if as_of else ""
+        return (
+            f"**Figure {n}. {title}**\n\n"
+            f"![Figure {n}]({url})\n\n"
+            f"*Source: {source}{as_of_s}*"
         )
-    return updated
+
+
+_TOC_HEADING_RE = re.compile(r"^##\s+(?!#)([^\n]+?)\s*$", re.MULTILINE)
+
+
+def _render_toc(body: str) -> str:
+    """Build a plain-list TOC when the memo has 6+ ## headings.
+
+    Anchor links would need a markdown plugin in both renderers; the
+    list-only form is decorative but renders cleanly everywhere.
+    """
+    headings = _TOC_HEADING_RE.findall(body)
+    if len(headings) < 6:
+        return ""
+    items = [f"- {heading.strip()}" for heading in headings]
+    return "## Contents\n\n" + "\n".join(items)
+
+
+def _render_cover(
+    *,
+    ticker: str,
+    lead_persona: str,
+    contributors: list[str],
+    analysts: list[str],
+    style: str,
+) -> str:
+    """The chrome at the top of a memo: firm + doc type + date + bylines."""
+    today = datetime.now(UTC).date().isoformat()
+    doc_type = "Citrini view" if style == "citrini" else "Initiation"
+
+    lead_card = _byline_card(lead_persona, kind="persona")
+    contributor_cards = " · ".join(
+        _byline_inline(name, kind="persona") for name in contributors
+    ) or "(none)"
+    analyst_cards = " · ".join(
+        _byline_inline(name, kind="analyst") for name in analysts
+    ) or "(none)"
+
+    return (
+        f"# {FIRM_NAME} · {doc_type} · {ticker.upper()}\n\n"
+        f"**Date:** {today}  ·  **Document:** {doc_type}\n\n"
+        f"**Lead author:** {lead_card}\n\n"
+        f"**Contributors:** {contributor_cards}\n\n"
+        f"**Analyst desk:** {analyst_cards}\n"
+    )
+
+
+def _byline_card(name: str, *, kind: str) -> str:
+    """Long-form byline: 'Name · Role · email'."""
+    src = PERSONA_BYLINES if kind == "persona" else ANALYST_BYLINES
+    info = src.get(name, {"name": name.capitalize(), "email": ""})
+    role = info.get("role")
+    parts = [info.get("name", name.capitalize())]
+    if role:
+        parts.append(role)
+    if info.get("email"):
+        parts.append(info["email"])
+    return "  ·  ".join(parts)
+
+
+def _byline_inline(name: str, *, kind: str) -> str:
+    """Short-form byline: 'Name (email)'."""
+    src = PERSONA_BYLINES if kind == "persona" else ANALYST_BYLINES
+    info = src.get(name, {"name": name.capitalize(), "email": ""})
+    label = info.get("name", name.capitalize())
+    email = info.get("email")
+    return f"{label} ({email})" if email else label
 
 
 def _parse_memo_meta(memo_md: str) -> dict[str, Any]:
